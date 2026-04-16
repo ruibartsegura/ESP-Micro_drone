@@ -3648,6 +3648,10 @@
 		(at 214.63 113.03)
 		(uuid "e93481c2-0b88-49aa-805a-161356ac8d74")
 	)
+	(no_connect
+		(at 168.91 128.27)
+		(uuid "fb2d8d5f-71eb-4b19-91b8-99a53e5620ff")
+	)
 	(wire
 		(pts
 			(xy 92.71 165.1) (xy 93.98 165.1)
@@ -5100,28 +5104,6 @@
 					(size 1.27 1.27)
 				)
 				(justify left)
-				(hide yes)
-			)
-		)
-	)
-	(global_label "VDD33"
-		(shape input)
-		(at 168.91 128.27 180)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right)
-		)
-		(uuid "44c5e6aa-98dd-4d98-9c0c-76a5db9953a8")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 159.8772 128.27 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
 				(hide yes)
 			)
 		)
