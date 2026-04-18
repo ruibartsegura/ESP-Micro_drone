@@ -6,7 +6,7 @@ Development of a micro drone based on an ESP platform, adapted and extended thro
 </p>
 </br>
  
-## PCB Design
+## [PCB Design](https://github.com/ruibartsegura/ESP-Micro_drone/tree/main/PCB_design)
 I made two diferents PCB, one if you want to put the ESP-32 s2 mini as smt and the other to plug it directly.
 
 <p align="center">
