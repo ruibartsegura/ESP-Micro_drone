@@ -2,13 +2,17 @@
 
 Here you can find the desings of the two diferents PCB I made.
 
-## [Plug PCB](https://github.com/ruibartsegura/ESP-Micro_drone/tree/main/PCB_design/ESP_plug_PCB/drone)
+## [Plug PCB](https://github.com/ruibartsegura/ESP-Micro_drone/tree/main/PCB_design/ESP_plug_PCB)
 
 This PCB is designed to plug the ESP-32 s2 mini board.
 
-## [SMT PCB](https://github.com/ruibartsegura/ESP-Micro_drone/tree/main/PCB_design/ESP_smt_PCB/drone)
+Here you can find the [schematic](https://github.com/ruibartsegura/ESP-Micro_drone/blob/main/PCB_design/ESP_plug_PCB/schematic_plug)
+
+## [SMT PCB](https://github.com/ruibartsegura/ESP-Micro_drone/tree/main/PCB_design/ESP_smt_PCB)
 
 This PCB is designed with the ESP-32 s2 mini as smt component.
+
+Here you can find the [schematic](https://github.com/ruibartsegura/ESP-Micro_drone/blob/main/PCB_design/ESP_smt_PCB/schematic_smt.pdf)
 
 <p align="center">
   <table>
