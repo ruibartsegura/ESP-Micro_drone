@@ -16,7 +16,7 @@ I made two diferents PCB, one if you want to use the ESP-32 s2 mini as smt and t
       <sub>SMT PCB</sub>
     </td>
     <td align="center" style="padding-right: 20px;">
-      <img src="img/pcb_plug.png" alt="PLUG PCB" width="300"/><br>
+      <img src="img/pcb_mini.png" alt="PLUG PCB" width="300"/><br>
       <sub>PLUG PCB</sub>
     </td>
   </table>
