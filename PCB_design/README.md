@@ -21,7 +21,7 @@ Here you can find the [schematic](https://github.com/ruibartsegura/ESP-Micro_dro
       <sub>SMT PCB</sub>
     </td>
     <td align="center" style="padding-right: 20px;">
-      <img src="../img/pcb_plug.png" alt="PLUG PCB" width="300"/><br>
+      <img src="../img/pcb_mini.png" alt="PLUG PCB" width="300"/><br>
       <sub>PLUG PCB</sub>
     </td>
   </table>
