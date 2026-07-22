@@ -1,0 +1,26 @@
+[0.010s] Invoking command in '/home/rui/uni/TFG/ESP-Micro_drone/code/ros_ws/build/my_msgs': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake /home/rui/uni/TFG/ESP-Micro_drone/code/ros_ws/src/my_msgs -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/rui/uni/TFG/ESP-Micro_drone/code/ros_ws/install/my_msgs
+[0.023s] -- Found ament_cmake: 2.5.6 (/opt/ros/jazzy/share/ament_cmake/cmake)
+[0.118s] -- Override CMake install command with custom implementation using symlinks instead of copying resources
+[0.125s] -- Found rosidl_default_generators: 1.6.0 (/opt/ros/jazzy/share/rosidl_default_generators/cmake)
+[0.128s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[0.166s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[0.199s] -- Found rosidl_adapter: 4.6.7 (/opt/ros/jazzy/share/rosidl_adapter/cmake)
+[0.453s] -- Found ament_cmake_ros: 0.12.0 (/opt/ros/jazzy/share/ament_cmake_ros/cmake)
+[0.526s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[0.620s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[0.621s] -- Found python_cmake_module: 0.11.1 (/opt/ros/jazzy/share/python_cmake_module/cmake)
+[0.675s] [31mCMake Error at /usr/share/cmake-3.28/Modules/FindPackageHandleStandardArgs.cmake:230 (message):
+[0.675s]   Could NOT find Python3 (missing: Python3_NumPy_INCLUDE_DIRS NumPy) (found
+[0.675s]   version "3.12.3")
+[0.675s] Call Stack (most recent call first):
+[0.675s]   /usr/share/cmake-3.28/Modules/FindPackageHandleStandardArgs.cmake:600 (_FPHSA_FAILURE_MESSAGE)
+[0.676s]   /usr/share/cmake-3.28/Modules/FindPython/Support.cmake:3862 (find_package_handle_standard_args)
+[0.676s]   /usr/share/cmake-3.28/Modules/FindPython3.cmake:545 (include)
+[0.676s]   /opt/ros/jazzy/share/rosidl_generator_py/cmake/rosidl_generator_py_generate_interfaces.cmake:22 (find_package)
+[0.676s]   /opt/ros/jazzy/share/ament_cmake_core/cmake/core/ament_execute_extensions.cmake:48 (include)
+[0.676s]   /opt/ros/jazzy/share/rosidl_cmake/cmake/rosidl_generate_interfaces.cmake:280 (ament_execute_extensions)
+[0.676s]   CMakeLists.txt:16 (rosidl_generate_interfaces)
+[0.676s] 
+[0.676s] [0m
+[0.676s] -- Configuring incomplete, errors occurred!
+[0.682s] Invoked command in '/home/rui/uni/TFG/ESP-Micro_drone/code/ros_ws/build/my_msgs' returned '1': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake /home/rui/uni/TFG/ESP-Micro_drone/code/ros_ws/src/my_msgs -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/rui/uni/TFG/ESP-Micro_drone/code/ros_ws/install/my_msgs

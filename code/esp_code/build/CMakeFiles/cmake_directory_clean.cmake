@@ -1,0 +1,11 @@
+file(REMOVE_RECURSE
+  "config/sdkconfig.h"
+  "config/sdkconfig.cmake"
+  "bootloader/bootloader.elf"
+  "bootloader/bootloader.bin"
+  "bootloader/bootloader.map"
+  "x_wing.bin"
+  "flash_project_args"
+  "x_wing.map"
+  "project_elf_src_esp32.c"
+)

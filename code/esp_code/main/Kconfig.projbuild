@@ -1,0 +1,217 @@
+menu "X-WING Config"
+
+    # menu "calibration angle"
+    #     config PITCH_CALIB
+    #         int "PITCH_CALIB deg*100"
+    #         range -200 200
+    #         default 0
+    #         help
+    #             if PITCH error angle is 0.90,set this 90
+
+    #     config ROLL_CALIB
+    #         int "ROLL_CALIB deg*100"
+    #         range -200 200
+    #         default 0
+    #         help
+    #             if ROLL error angle is 0.90,set this 90
+    # endmenu
+
+    menu "sensors config"
+        config I2C0_PIN_SDA
+            int "I2C0_PIN_SDA GPIO number"
+            range 0 43
+            default 11
+            help
+                GPIO number (IOxx) I2C0_PIN_SDA
+
+        config I2C0_PIN_SCL
+            int "I2C0_PIN_SCL GPIO number"
+            range 0 43
+            default 10
+            help
+                GPIO number (IOxx) I2C0_PIN_SCL
+
+        config I2C1_PIN_SDA
+            int "I2C1_PIN_SDA GPIO number"
+            range 0 43
+            default 40
+            help
+                GPIO number (IOxx) I2C1_PIN_SDA
+
+        config I2C1_PIN_SCL
+            int "I2C1_PIN_SCL GPIO number"
+            range 0 43
+            default 41
+            help
+                GPIO number (IOxx) I2C1_PIN_SCL
+
+        config SPI_PIN_MISO
+            int "SPI_PIN_MISO GPIO number"
+            range 0 43
+            default 37
+            help
+                GPIO number (IOxx) SPI_PIN_MISO
+
+        config SPI_PIN_MOSI
+            int "SPI_PIN_MOSI GPIO number"
+            range 0 43
+            default 35
+            help
+                GPIO number (IOxx) SPI_PIN_MOSI
+
+        config SPI_PIN_CLK
+            int "SPI_PIN_CLK GPIO number"
+            range 0 43
+            default 36
+            help
+                GPIO number (IOxx) SPI_PIN_CLK
+
+        config SPI_PIN_CS0
+            int "SPI_PIN_CS0 GPIO number"
+            range 0 43
+            default 34
+            help
+                GPIO number (IOxx) SPI_PIN_CS0
+
+        config MPU_PIN_INT
+            int "MPU_PIN_INT GPIO number"
+            range 0 43
+            default 12
+            help
+                GPIO number (IOxx) MPU_PIN_INT
+
+        config ADC1_PIN
+            int "EXT01_PIN GPIO number"
+            range 1 10
+            default 2
+            help
+                GPIO number (IOxx) ADC1_PIN
+
+        config EXT01_PIN
+            int "EXT01_PIN GPIO number"
+            range 0 43
+            default 1
+            help
+                GPIO number (IOxx) EXT01_PIN
+    endmenu
+
+    menu "led config"
+        config LED_PIN_ESP
+            int "LED_PIN_ESP GPIO number"
+            range 0 43
+            default 15
+            help
+                GPIO number (IOxx) LED_PIN_ESP
+
+        config LED_PIN_BLUE
+            int "LED_PIN_BLUE GPIO number"
+            range 0 43
+            default 7
+            help
+                GPIO number (IOxx) LED_PIN_BLUE
+
+        config LED_PIN_GREEN
+            int "LED_PIN_GREEN GPIO number"
+            range 0 43
+            default 9
+            help
+                GPIO number (IOxx) LED_PIN_GREEN
+
+        config LED_PIN_RED
+            int "LED_PIN_RED GPIO number"
+            range 0 43
+            default 8
+            help
+                GPIO number (IOxx) LED_PIN_RED
+
+    endmenu
+
+    menu "motors config"
+        config MOTOR01_PIN
+            int "MOTOR01_PIN GPIO number"
+            range 0 43
+            default 5
+            help
+                GPIO number (IOxx) MOTOR01_PIN
+
+        config MOTOR02_PIN
+            int "MOTOR02_PIN GPIO number"
+            range 0 43
+            default 6
+            help
+                GPIO number (IOxx) MOTOR02_PIN
+
+        config MOTOR03_PIN
+            int "MOTOR03_PIN GPIO number"
+            range 0 43
+            default 3
+            help
+                GPIO number (IOxx) MOTOR03_PIN
+
+        config MOTOR04_PIN
+            int "MOTOR04_PIN GPIO number"
+            range 0 43
+            default 4
+            help
+                GPIO number (IOxx) MOTOR04_PIN
+    endmenu
+
+    menu "parameter configuration"
+        config HOVERING_H
+            int "default high of hovering(cm)"
+            range 0 150
+            default 50
+        
+        config VEL_MAX
+            int "Max velocity of the drone"
+            range 0 10
+            default 2
+        
+        config LAND_ON_SITE
+            bool "Where the drone will land, (on site[*] - odom[])"
+            default y
+
+        
+    endmenu
+
+    menu "priority settings"
+
+        config SYSTEM_TASK_STACK
+            int "Stack the sytem (Bytes)"
+            default 4000
+            help
+                Stack size in Bytes of the system task
+
+        config SYSTEM_TASK_PRIO
+            int "Priority of the system"
+            default 5
+            help
+                Priority of the system task higher value means higher priority
+
+        config IMU_TASK_STACK
+            int "Stack the imu (Bytes)"
+            default 3200
+            help
+                Stack size in Bytes of the IMU task
+
+        config IMU_TASK_PRIO
+            int "Priority of the imu task"
+            default 6
+            help
+                Priority of imu task higher value means higher priority
+
+        config MICRO_ROS_STACK
+            int "Stack the micro-ROS app (Bytes)"
+            default 16000
+            help
+                Stack size in Bytes of the micro-ROS app
+
+        config MICRO_ROS_TASK_PRIO
+            int "Priority of the micro-ROS app"
+            default 4
+            help
+                Priority of micro-ros task higher value means higher priority
+    endmenu
+
+
+endmenu

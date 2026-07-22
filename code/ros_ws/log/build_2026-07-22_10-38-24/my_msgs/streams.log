@@ -1,0 +1,40 @@
+[0.013s] Invoking command in '/home/rui/uni/TFG/ESP-Micro_drone/code/ros_ws/build/my_msgs': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake /home/rui/uni/TFG/ESP-Micro_drone/code/ros_ws/src/my_msgs -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/rui/uni/TFG/ESP-Micro_drone/code/ros_ws/install/my_msgs
+[0.286s] -- The C compiler identification is GNU 13.3.0
+[0.411s] -- The CXX compiler identification is GNU 13.3.0
+[0.431s] -- Detecting C compiler ABI info
+[0.553s] -- Detecting C compiler ABI info - done
+[0.566s] -- Check for working C compiler: /usr/bin/cc - skipped
+[0.566s] -- Detecting C compile features
+[0.567s] -- Detecting C compile features - done
+[0.576s] -- Detecting CXX compiler ABI info
+[0.665s] -- Detecting CXX compiler ABI info - done
+[0.675s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[0.675s] -- Detecting CXX compile features
+[0.676s] -- Detecting CXX compile features - done
+[0.686s] -- Found ament_cmake: 2.5.6 (/opt/ros/jazzy/share/ament_cmake/cmake)
+[0.818s] -- Found Python3: /home/rui/.espressif/python_env/idf5.2_py3.12_env/bin/python3 (found version "3.12.3") found components: Interpreter 
+[0.895s] -- Override CMake install command with custom implementation using symlinks instead of copying resources
+[0.957s] -- Found rosidl_default_generators: 1.6.0 (/opt/ros/jazzy/share/rosidl_default_generators/cmake)
+[0.967s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[1.050s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[1.123s] -- Found rosidl_adapter: 4.6.7 (/opt/ros/jazzy/share/rosidl_adapter/cmake)
+[1.661s] -- Found ament_cmake_ros: 0.12.0 (/opt/ros/jazzy/share/ament_cmake_ros/cmake)
+[2.004s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[2.442s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[2.448s] -- Found python_cmake_module: 0.11.1 (/opt/ros/jazzy/share/python_cmake_module/cmake)
+[2.553s] -- Found PythonExtra: /home/rui/.espressif/python_env/idf5.2_py3.12_env/bin/python3  
+[2.754s] [31mCMake Error at /usr/share/cmake-3.28/Modules/FindPackageHandleStandardArgs.cmake:230 (message):
+[2.754s]   Could NOT find Python3 (missing: Python3_NumPy_INCLUDE_DIRS NumPy) (found
+[2.754s]   version "3.12.3")
+[2.754s] Call Stack (most recent call first):
+[2.754s]   /usr/share/cmake-3.28/Modules/FindPackageHandleStandardArgs.cmake:600 (_FPHSA_FAILURE_MESSAGE)
+[2.754s]   /usr/share/cmake-3.28/Modules/FindPython/Support.cmake:3862 (find_package_handle_standard_args)
+[2.754s]   /usr/share/cmake-3.28/Modules/FindPython3.cmake:545 (include)
+[2.755s]   /opt/ros/jazzy/share/rosidl_generator_py/cmake/rosidl_generator_py_generate_interfaces.cmake:22 (find_package)
+[2.755s]   /opt/ros/jazzy/share/ament_cmake_core/cmake/core/ament_execute_extensions.cmake:48 (include)
+[2.755s]   /opt/ros/jazzy/share/rosidl_cmake/cmake/rosidl_generate_interfaces.cmake:280 (ament_execute_extensions)
+[2.755s]   CMakeLists.txt:16 (rosidl_generate_interfaces)
+[2.755s] 
+[2.755s] [0m
+[2.755s] -- Configuring incomplete, errors occurred!
+[2.763s] Invoked command in '/home/rui/uni/TFG/ESP-Micro_drone/code/ros_ws/build/my_msgs' returned '1': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake /home/rui/uni/TFG/ESP-Micro_drone/code/ros_ws/src/my_msgs -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/rui/uni/TFG/ESP-Micro_drone/code/ros_ws/install/my_msgs

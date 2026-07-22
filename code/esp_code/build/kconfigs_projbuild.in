@@ -1,0 +1,7 @@
+source "/home/rui/esp-idf/components/bootloader/Kconfig.projbuild"
+source "/home/rui/esp-idf/components/esp_app_format/Kconfig.projbuild"
+source "/home/rui/esp-idf/components/esp_rom/Kconfig.projbuild"
+source "/home/rui/esp-idf/components/esptool_py/Kconfig.projbuild"
+source "/home/rui/esp-idf/components/partition_table/Kconfig.projbuild"
+source "/home/rui/uni/TFG/ESP-Micro_drone/code/esp_code/main/Kconfig.projbuild"
+source "/home/rui/uni/TFG/ESP-Micro_drone/code/esp_code/components/micro_ros_espidf_component/Kconfig.projbuild"
