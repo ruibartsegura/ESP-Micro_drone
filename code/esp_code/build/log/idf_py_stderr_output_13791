@@ -1,0 +1,21 @@
+CMake Warning at /home/rui/esp-idf/tools/cmake/git_submodules.cmake:52 (message):
+  Git submodule components/openthread/openthread is out of date.  Run 'git
+  submodule update --init --recursive' to fix.
+Call Stack (most recent call first):
+  /home/rui/esp-idf/tools/cmake/build.cmake:80 (git_submodule_check)
+  /home/rui/esp-idf/tools/cmake/build.cmake:242 (__build_get_idf_git_revision)
+  /home/rui/esp-idf/tools/cmake/idf.cmake:52 (__build_init)
+  /home/rui/esp-idf/tools/cmake/project.cmake:29 (include)
+  CMakeLists.txt:61 (include)
+
+
+/home/rui/uni/TFG/ESP-Micro_drone/code/esp_code/components/configurations/parameters/parameters.c:17:14: warning: 'hov_h' initialized and declared 'extern'
+   17 | extern float hov_h = CONFIG_HOVERING_H / 100;
+      |              ^~~~~
+/home/rui/uni/TFG/ESP-Micro_drone/code/esp_code/components/configurations/parameters/parameters.c:18:14: warning: 'vel_max' initialized and declared 'extern'
+   18 | extern float vel_max = CONFIG_VEL_MAX / 100;
+      |              ^~~~~~~
+/home/rui/uni/TFG/ESP-Micro_drone/code/esp_code/components/configurations/parameters/parameters.c:19:13: warning: 'land_on_site' initialized and declared 'extern'
+   19 | extern bool land_on_site = CONFIG_LAND_ON_SITE;
+      |             ^~~~~~~~~~~~
+/home/rui/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20230928/xtensa-esp-elf/bin/../lib/gcc/xtensa-esp-elf/13.2.0/../../../../xtensa-esp-elf/bin/ld: missing --end-group; added as last command line option

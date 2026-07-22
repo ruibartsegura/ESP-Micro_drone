@@ -1,0 +1,2 @@
+/home/rui/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20230928/xtensa-esp-elf/bin/xtensa-esp32-elf-ar qc libros_coordinator.a CMakeFiles/__idf_ros_coordinator.dir/ros_coordinator.c.obj
+/home/rui/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20230928/xtensa-esp-elf/bin/xtensa-esp32-elf-ranlib libros_coordinator.a
