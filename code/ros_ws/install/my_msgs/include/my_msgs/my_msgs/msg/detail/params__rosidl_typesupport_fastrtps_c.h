@@ -1,1 +1,0 @@
-/home/rui/uni/TFG/ESP-Micro_drone/code/ros_ws/build/my_msgs/rosidl_typesupport_fastrtps_c/my_msgs/msg/detail/params__rosidl_typesupport_fastrtps_c.h

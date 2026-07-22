@@ -1,1 +1,0 @@
-ament_cmake_symlink_install_targets("TARGET_FILES" "/home/rui/uni/TFG/ESP-Micro_drone/code/ros_ws/build/my_msgs/rosidl_generator_py/my_msgs/my_msgs_s__rosidl_typesupport_fastrtps_c.so" "TARGETS" "my_msgs_s__rosidl_typesupport_fastrtps_c" "DESTINATION" "lib/python3.12/site-packages/my_msgs")
