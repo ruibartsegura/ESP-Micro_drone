@@ -1,0 +1,12 @@
+code/esp_code/build/
+
+code/esp_code/sdkconfig.*
+code/esp_code/sdkconfig
+
+code/esp_code/.vscode/
+code/esp_code/dependencies.lock
+
+code/ros_ws/build
+code/ros_ws/install
+code/ros_ws/log
+
