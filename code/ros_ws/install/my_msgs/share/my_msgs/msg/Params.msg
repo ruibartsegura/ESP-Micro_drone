@@ -1,1 +1,0 @@
-/home/rui/uni/TFG/ESP-Micro_drone/code/ros_ws/src/my_msgs/msg/Params.msg
