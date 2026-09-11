@@ -10,10 +10,11 @@ set(PLANE_COMPONENT_DIRS
         ./components/drivers/motors
         ./components/configurations/parameters
         ./components/ros_coordinator
+        ./components/flight_control
         ./components/micro_ros_espidf_component
 )
 
 set(EXTRA_COMPONENT_DIRS "${EXTRA_COMPONENT_DIRS} ${PLANE_COMPONENT_DIRS}")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(x_wing)
+project(esp_code)

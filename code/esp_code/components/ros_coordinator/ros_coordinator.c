@@ -30,6 +30,7 @@
 // Msg types
 #include <sensor_msgs/msg/imu.h>
 #include <std_msgs/msg/int32.h>
+#include <geometry_msgs/msg/twist.h>
 #include <my_msgs/msg/params.h>
 
 // Services types
@@ -56,32 +57,55 @@ static const float MIN_ALT = 0.5f;
 #define DEG_TO_RAD  0.017453293f  // pi / 180
 #define GRAVITY_MS2 9.80665f
 
-// IMU pub & msg
+// ============================================================
+//                       IMU pub & msg
+// ============================================================
 rcl_publisher_t imu_pub;
 sensor_msgs__msg__Imu imu_msg;
 
-// Subscribers
+// ============================================================
+//                         Subscribers
+// ============================================================
 rcl_subscription_t params_sub;
 std_msgs__msg__Int32 recv_msg;
 
-// Params
+rcl_subscription_t cmd_vel_sub;
+geometry_msgs__msg__Twist cmd_vel_msg;
+
+// ============================================================
+//                           Params
+// ============================================================
 my_msgs__msg__Params param_msg;
 static bool params_2_update = false;
 
-// Services
+// ============================================================
+//                          Services
+// ============================================================
 rcl_service_t takeoff_srv;
 my_msgs__srv__Takeoff_Request  takeoff_req;
 my_msgs__srv__Takeoff_Response takeoff_res;
 
-// Mutex
+// ============================================================
+//                          Mutex
+// ============================================================
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
+// ============================================================
+//                  Take off service params
+// ============================================================
 bool take_off_ready = false;
 float altitude = MIN_ALT;
 
+// ============================================================
+//                         Checker
+// ============================================================
 static bool is_init = false;
 
-// Receive and manage parameters
+
+// ============================================================
+//                       App parameters
+// ============================================================
+// Apply parameters if is necessary
 void apply_pending_params() {
     if (params_2_update) {
         pthread_mutex_lock(&lock);
@@ -105,7 +129,24 @@ void param_callback(const void * msgin)
     pthread_mutex_unlock(&lock);
 }
 
-// Manage take off
+// ============================================================
+//                          CMD_VEL
+// ============================================================
+geometry_msgs__msg__Twist get_cmd_vel() {
+    return cmd_vel_msg;
+}
+
+void cmd_vel_callback(const void * msgin)
+{
+    const geometry_msgs__msg__Twist * new_msg = (const geometry_msgs__msg__Twist *)msgin;
+    pthread_mutex_lock(&lock);
+    cmd_vel_msg = *new_msg;
+    pthread_mutex_unlock(&lock);
+}
+// ============================================================
+//                           Take off
+// ============================================================
+// Getter if the take off is ready
 bool get_take_off_ready() {
     pthread_mutex_lock(&lock);
     bool res = take_off_ready;
@@ -114,6 +155,7 @@ bool get_take_off_ready() {
     return res;
 }
 
+// Getter altitude of the take off
 float get_take_off_alt() {
     pthread_mutex_lock(&lock);
     float alt = altitude;
@@ -121,6 +163,7 @@ float get_take_off_alt() {
     return alt;
 }
 
+// Take off callback
 void takeoff_callback(const void * req_msg, void * res_msg) {
     my_msgs__srv__Takeoff_Request  * takeoff_req =
         (my_msgs__srv__Takeoff_Request *)req_msg;
@@ -129,6 +172,7 @@ void takeoff_callback(const void * req_msg, void * res_msg) {
 
     int state = get_state();
 
+    // Check drone state, to just accept the take off when the drone is armed and waiting to take off
     if (state == 8) { // Error state
         takeoff_res->accepted = false;
         rosidl_runtime_c__String__assign(&takeoff_res->reason, "Status error");
@@ -139,34 +183,33 @@ void takeoff_callback(const void * req_msg, void * res_msg) {
         return;
     }
 
+    // Check requested altitude
     if (takeoff_req->altitude < MIN_ALT || takeoff_req->altitude > MAX_ALT) {
         takeoff_res->accepted = false;
         rosidl_runtime_c__String__assign(&takeoff_res->reason, "Invalid altitude");
         return;
     }
 
+    // Take off -> ready
     pthread_mutex_lock(&lock);
     take_off_ready = true;
     altitude = takeoff_req->altitude;
     pthread_mutex_unlock(&lock);
 
+    // Service answer
     takeoff_res->accepted = true;
     rosidl_runtime_c__String__assign(&takeoff_res->reason, "OK");
 }
 
+// ============================================================
+//                         IMU publisher
+// ============================================================
 // Fill IMU msg
 void fill_imu_msg(const IMU * msg, sensor_msgs__msg__Imu * out) {
     int64_t now_ms = rmw_uros_epoch_millis();
 
     out->header.stamp.sec = now_ms / 1000;
     out->header.stamp.nanosec = (now_ms % 1000) * 1000000;
-    // NOTA: out->header.frame_id NO se toca aquí, ya quedó fijado
-    // una sola vez al inicializar el mensaje.
-
-    out->orientation.x = msg->q.x;
-    out->orientation.y = msg->q.y;
-    out->orientation.z = msg->q.z;
-    out->orientation.w = msg->q.w;
 
     // FIX: estaban intercambiados (aceleración en angular_velocity y
     // giro en linear_acceleration) y sin convertir unidades.
@@ -181,10 +224,11 @@ void fill_imu_msg(const IMU * msg, sensor_msgs__msg__Imu * out) {
     out->linear_acceleration.z = msg->AcZ_g * GRAVITY_MS2;
 }
 
-// Timer
-void timer_callback(rcl_timer_t * timer, int64_t last_call_time, uintptr_t arg) {
+// ============================================================
+//                 Main timer of ROS Coordinator
+// ============================================================
+void timer_callback(rcl_timer_t * timer, int64_t last_call_time) {
     RCLC_UNUSED(last_call_time);
-    RCLC_UNUSED(arg);
     if (timer != NULL) {
         if (get_state() == 1 && params_2_update) {
             apply_pending_params();
@@ -201,7 +245,13 @@ void timer_callback(rcl_timer_t * timer, int64_t last_call_time, uintptr_t arg) 
     }
 }
 
+// ============================================================
+//                       Ros task initializer
+//
+// Initialize timers, callback...
+// ============================================================
 void micro_ros_task(void * arg) {
+    // Micro ros initialization
     rcl_allocator_t allocator = rcl_get_default_allocator();
     rclc_support_t support;
 
@@ -216,38 +266,51 @@ void micro_ros_task(void * arg) {
 
     RCCHECK(rclc_support_init_with_options(&support, 0, NULL, &init_options, &allocator));
 
-    led_on(LED_ESP);
+    led_on(LED_ESP); // Micro ros has connected to the net
 
+    // Init main node
     rcl_node_t node;
-    RCCHECK(rclc_node_init_default(&node, "xwing_drone", "", &support));
+    RCCHECK(rclc_node_init_default(&node, "rui_drone", "", &support));
 
-    // Save valid mem for fram_id
+    // Init imu publisher
+    // Save valid mem for frame_id
     sensor_msgs__msg__Imu__init(&imu_msg);
     rosidl_runtime_c__String__assign(&imu_msg.header.frame_id, "imu_link");
+    imu_msg.orientation_covariance[0] = -1.0;
 
     RCCHECK(rclc_publisher_init_default(
         &imu_pub,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
         "imu_data"));
-
+    
+    // QoS params sub
     rmw_qos_profile_t params_qos = rmw_qos_profile_default;
     params_qos.reliability  = RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT;
     params_qos.durability   = RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL;
     params_qos.history      = RMW_QOS_POLICY_HISTORY_KEEP_LAST;
     params_qos.depth        = 2;
 
+    // Init param sub
     RCCHECK(rclc_subscription_init(
         &params_sub, &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(my_msgs, msg, Params),
         "params", &params_qos));
 
+    // Init cmd vel sub
+    RCCHECK(rclc_subscription_init_default(
+        &cmd_vel_sub, &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
+        "cmd_vel"));
+
+    // Init take off service
     RCCHECK(rclc_service_init_default(
         &takeoff_srv, &node,
         ROSIDL_GET_SRV_TYPE_SUPPORT(my_msgs, srv, Takeoff),
         "takeoff_srv"
     ));
 
+    // Init main timer
     rcl_timer_t timer;
     const unsigned int timer_timeout = 1000;
     RCCHECK(rclc_timer_init_default2(
@@ -257,11 +320,14 @@ void micro_ros_task(void * arg) {
         timer_callback,
         true));
 
+    // Add everything to the executor
     rclc_executor_t executor;
     RCCHECK(rclc_executor_init(&executor, &support.context, N_HANDLERS, &allocator));
     RCCHECK(rclc_executor_add_timer(&executor, &timer));
     RCCHECK(rclc_executor_add_subscription(&executor, &params_sub, &recv_msg,
         &param_callback, ON_NEW_DATA));
+    RCCHECK(rclc_executor_add_subscription(&executor, &cmd_vel_sub, &cmd_vel_msg,
+        &cmd_vel_callback, ON_NEW_DATA));
     RCCHECK(rclc_executor_add_service(&executor, &takeoff_srv, &takeoff_req, &takeoff_res, takeoff_callback));
 
     int64_t last_log_us = esp_timer_get_time();

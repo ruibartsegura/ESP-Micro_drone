@@ -8,7 +8,7 @@ void system_init(void);
 
 bool system_test(void);
 
-void system_launch(void);
+//void system_launch(void);
 
 /**
  * @brief Lanza la tarea FreeRTOS que ejecuta la máquina de estados en
@@ -31,7 +31,7 @@ static const int DISARMING          = 7;
 static const int ERROR              = 8;
 
 extern int state;
-void change_state(int new_state);
+//void change_state(int new_state);
 int get_state();
 
 // Checkers

@@ -16,6 +16,8 @@
 #include "mpu6050.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_timer.h"
+
 
 #define ACCEL_SCALE 16384.0f // LSB/g para ±2g
 #define GYRO_SCALE  131.0f   // LSB/(°/s) para ±250°/s
@@ -74,7 +76,8 @@ esp_err_t mpu6050_init(i2c_port_t i2c_num)
 
 esp_err_t mpu6050_read_raw_data(i2c_port_t i2c_num,
                                  int16_t *accel_x, int16_t *accel_y, int16_t *accel_z,
-                                 int16_t *gyro_x, int16_t *gyro_y, int16_t *gyro_z)
+                                 int16_t *gyro_x, int16_t *gyro_y, int16_t *gyro_z,
+                                 int64_t *t_stamp)
 {
     uint8_t data[14];
     esp_err_t ret;
@@ -100,6 +103,8 @@ esp_err_t mpu6050_read_raw_data(i2c_port_t i2c_num,
     *gyro_y  = (int16_t)((data[10] << 8) | data[11]);
     *gyro_z  = (int16_t)((data[12] << 8) | data[13]);
 
+    *t_stamp = esp_timer_get_time();
+
     return ESP_OK;
 }
 
@@ -107,10 +112,6 @@ void mpu6050_convert_accel(int16_t raw_x, int16_t raw_y, int16_t raw_z,
                             const float bias[3],
                             float *accel_x, float *accel_y, float *accel_z)
 {
-    // FIX 2 (unidades): salida en g "puras", NO en m/s². El campo se
-    // llama AcX_g y el chequeo de armado (imu_check_stable_for_arming)
-    // compara contra 0.9-1.1 asumiendo g. La conversión a m/s² para el
-    // mensaje ROS se hace aparte, en ros_coordinator.c::fill_imu_msg().
     *accel_x = (raw_x / ACCEL_SCALE) - bias[0];
     *accel_y = (raw_y / ACCEL_SCALE) - bias[1];
     *accel_z = (raw_z / ACCEL_SCALE) - bias[2];
@@ -139,7 +140,7 @@ esp_err_t mpu6050_calibrate(i2c_port_t i2c_num, float *accel_bias, float *gyro_b
     // El dron DEBE estar quieto y nivelado durante esta rutina.
     for (int i = 0; i < samples; i++) {
         esp_err_t ret = mpu6050_read_raw_data(i2c_num, &accel_x, &accel_y, &accel_z,
-                                               &gyro_x, &gyro_y, &gyro_z);
+                                               &gyro_x, &gyro_y, &gyro_z, NULL);
         if (ret != ESP_OK) {
             return ret; // antes se ignoraba el error de lectura
         }
