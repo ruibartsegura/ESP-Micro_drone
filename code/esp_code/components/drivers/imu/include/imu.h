@@ -7,7 +7,6 @@
 #include "driver/i2c.h"
 #include "sdkconfig.h"
 #include "mpu6050.h"
-#include "quaternions.h"
 
 // ---- I2C bus configuration ----
 #define I2C_MASTER_NUM       I2C_NUM_0
@@ -24,8 +23,7 @@ typedef struct imu_data {
     float GyX_dps;
     float GyY_dps;
     float GyZ_dps;
-
-    Quaternion q;
+    int64_t Time_stamp;
 } IMU;
 
 /**
@@ -57,14 +55,18 @@ esp_err_t imu_get_data(IMU *data);
 
 // Inclinación máxima permitida respecto a la vertical (grados)
 #define IMU_ARM_MAX_TILT_DEG      10.0f
+
 // Velocidad angular máxima permitida (º/s) para considerar el dron "quieto"
 #define IMU_ARM_MAX_GYRO_DPS      5.0f
+
 // Rango aceptable del módulo del vector aceleración (en g). Fuera de este
 // rango indica vibración excesiva, manipulación o caída libre.
 #define IMU_ARM_ACCEL_MIN_G       0.9f
 #define IMU_ARM_ACCEL_MAX_G       1.1f
+
 // Nº de muestras consecutivas que deben cumplir todas las condiciones
 #define IMU_ARM_CHECK_SAMPLES     20
+
 // Periodo entre muestras, en ms
 #define IMU_ARM_CHECK_PERIOD_MS   10
 
@@ -96,3 +98,6 @@ esp_err_t imu_check_stable_for_arming(imu_arm_state_t *state);
 
 
 #endif // IMU_H
+
+// TODO
+//      * Revisar estabilización

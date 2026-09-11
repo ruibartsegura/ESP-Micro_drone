@@ -25,7 +25,8 @@
 esp_err_t mpu6050_init(i2c_port_t i2c_num);
 esp_err_t mpu6050_read_raw_data(i2c_port_t i2c_num,
                                  int16_t *accel_x, int16_t *accel_y, int16_t *accel_z,
-                                 int16_t *gyro_x, int16_t *gyro_y, int16_t *gyro_z);
+                                 int16_t *gyro_x, int16_t *gyro_y, int16_t *gyro_z,
+                                 int64_t *t_stamp);
 
 // NOTA: bias ahora es un parámetro explícito. Ya no hay bias "fantasma"
 // escondido en una variable estática que la calibración nunca actualizaba.

@@ -79,7 +79,7 @@ bool check_takeOff_2_hov(float hov_h) {
     }
 }
 
-void system_launch(void) {
+void state_machine(void) {
 
     switch (state) {
         case INIT:
@@ -178,7 +178,7 @@ static void system_task(void *arg) {
     int log_counter = 0;
 
     while (1) {
-        system_launch();
+        state_machine();
 
         if (++log_counter >= 250) {
             log_counter = 0;
