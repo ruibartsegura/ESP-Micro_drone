@@ -11,7 +11,7 @@
 #define motor_1 CONFIG_LED_PIN_ESP
 #define motor_2 CONFIG_LED_PIN_RED
 #define motor_3 CONFIG_LED_PIN_GREEN
-#define motor_4 CONFIG_LED_PIN_BLUE
+#define motor_4 CONFIG_LED_PIN_BLUE // TODO poner bien pin motor
 
 // LEDC configuration
 #define LEDC_TIMER      LEDC_TIMER_0

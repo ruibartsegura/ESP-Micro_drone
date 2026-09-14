@@ -12,6 +12,7 @@
 #include "imu.h"
 #include "system.h"
 #include "ros_coordinator.h"
+#include "motors.h"
 
 #include "esp_log.h"
 
@@ -19,6 +20,7 @@
 
 #define SYSTEM_TASK_PERIOD_MS 15 // 150HZ*
 
+// Complementay
 #define ALPHA 0.98 // Complementary filter constant
 
 #define p 1121 // Air pressure at N.C. & 600m over sea level
@@ -28,6 +30,10 @@
 #define m 16.5 // Drone mass
 #define MAX_ANGLE 0.52 // 30º in rad
 
+// PID
+#define KP 1; // Proportional
+#define KI 1; // Integrative
+#define KD 1; // Derivative
 
 RPY last_rpy;
 
@@ -62,7 +68,7 @@ void get_roll_pitch(float *roll, float *pitch, IMU *imu_d) {
 // ============================================================
 //               CMD_VEL -> desired Roll/Pitch
 // ============================================================
-void cmd_vel_2_RP(float *targ_roll, float *targ_pitch, cmd_vel_t cmd_vel) {
+void cmd_vel_2_RP(float *targ_roll, float *targ_pitch, float *targ_yaw, geometry_msgs__msg__Twist cmd_vel) {
     float roll, pitch, vx, vy, sign_x, sign_y;
 
     // Get input velocity
@@ -96,6 +102,7 @@ void cmd_vel_2_RP(float *targ_roll, float *targ_pitch, cmd_vel_t cmd_vel) {
 
     *targ_roll = roll;
     *targ_pitch = pitch;
+    *targ_yaw = cmd_vel.angular.z;
     return;
 }
 
@@ -106,8 +113,20 @@ void cmd_vel_2_RP(float *targ_roll, float *targ_pitch, cmd_vel_t cmd_vel) {
 void control_attitude() {
   IMU imu_d;
 
-  float roll, pitch, yaw;
+  // External loop
+  float roll, pitch;
   float targ_roll, targ_pitch, targ_yaw;
+  float err_roll, err_pitch, targ_yaw;
+  
+  // Internal loop
+  float roll_rate, pitch_rate, yaw_rate;
+  float targ_roll_rate, targ_pitch_rate, targ_yaw_rate;
+  float err_roll_rate, err_pitch_rate, err_yaw_rate;
+
+  // Power for the motors
+  float pow_roll, pow_pitch, pow_yaw;
+  float motor1, motor2, motor3, motor4;
+
 
   // Get roll & pitch
   esp_err_t err = imu_get_data(&imu_d);
@@ -115,7 +134,41 @@ void control_attitude() {
   get_roll_pitch(&roll, &pitch, &imu_d);
 
   // Get target roll & pitch
-  cmd_vel_2_RP(&targ_roll, &targ_pitch, get_cmd_vel());
+  cmd_vel_2_RP(&targ_roll, &targ_pitch, &targ_yaw, get_cmd_vel());
+
+  // Get the error in the roll and pitch
+  err_roll = targ_roll - roll;
+  err_pitch = targ_pitch - pitch;
+
+  // Get the rate of roll & pitch
+  targ_roll_rate = KP * err_roll;
+  targ_pitch_rate = KP * err_pitch; // TODO: CLAMP | Cambiar nombre IMU acc_lin & roll_rate
+
+  // Get measured roll, pitch, yaw rate
+  roll_rate = imu_d.GyX_dps_;
+  pitch_rate = imu_d.GyY_dps; 
+  yaw_rate = imu_d.GyZ_dps;
+
+  // Get diff between measured and desired
+  err_roll_rate = targ_roll_rate - roll_rate;
+  err_pitch_rate = targ_pitch_rate - pitch_rate;
+  err_yaw_rate = targ_yaw_rate - yaw_rate;
+
+
+  pow_roll = KP * err_roll_rate;
+  pow_pitch = KP * err_pitch_rate;
+  pow_yaw = KP * err_yaw_rate; // TODO hacer bien PID
+
+  // Motors power
+  motor1 = throttle_base + pow_roll - pow_pitch - pow_yaw;
+  motor2 = throttle_base - pow_roll - pow_pitch + pow_yaw;
+  motor3 = throttle_base - pow_roll + pow_pitch - pow_yaw;
+  motor4 = throttle_base + pow_roll + pow_pitch + pow_yaw;
+
+  motor_set_speed(1, motor1);
+  motor_set_speed(2, motor2);
+  motor_set_speed(3, motor3);
+  motor_set_speed(4, motor4);
 }
 
 static void attitude_task(void *arg) {
