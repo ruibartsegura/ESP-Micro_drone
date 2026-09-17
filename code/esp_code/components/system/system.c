@@ -1,7 +1,9 @@
+#include "system.h"
+
 #include <stdbool.h>
 #include <stdint.h>
+#include <geometry_msgs/msg/twist.h>
 
-#include "system.h"
 
 // Free RTOS
 #include "freertos/FreeRTOS.h"
@@ -11,12 +13,16 @@
 // Drivers
 #include "led.h"
 #include "imu.h"
+#include "attitude_controller.h"
 
 // Microros
 #include "ros_coordinator.h"
 
 // How much error it's admitted in the altitude
 #define ALTITUDE_ERROR 5
+
+// Hover velocity = 0;
+geometry_msgs__msg__Twist hover_vel; // TODO: revisar si se crea a 0 o vacio
 
 int state = INIT;
 static bool is_init = false;
@@ -117,27 +123,34 @@ void state_machine(void) {
             break;
 
         case TAKING_OFF:
-            // go_to(0, 0, get_take_off_alt());
+            ATTITUDE_TARGET att_target;
+            att_target.cmd_vel = hover_vel;
+            att_target.h = get_take_off_alt();
 
-            if (check_takeOff_2_hov(get_take_off_alt())) {
+            if (check_takeOff_2_hov(att_target.h)) {
                 change_state(HOVERING);
             }
             break;
 
         case HOVERING:
-            // go_to(x, y, get_take_off_alt());
+            ATTITUDE_TARGET att_target;
+            att_target.cmd_vel = hover_vel;
+            att_target.h = get_take_off_alt();
 
-            // if (get_new_pos()) {
-            //     change_state(EXTERNAL_CONTROL);
-            // }
 
-            // if (get_land()) {
-            //     change_state(LANDING);
-            // }
+            if (new_vel()) {
+                change_state(EXTERNAL_CONTROL);
+            }
+
+            if (get_land()) {
+                change_state(LANDING);
+            }
             break;
 
         case EXTERNAL_CONTROL:
-            // go_to(x, y, h);
+            ATTITUDE_TARGET att_target;
+            att_target.cmd_vel = get_cmd_vel(); // TODO: revisar caducidad del cmd_vel
+            att_target.h = get_take_off_alt();
 
             // if (!get_new_pos()) {
             //     change_state(HOVERING);
@@ -149,7 +162,9 @@ void state_machine(void) {
             break;
 
         case LANDING:
-            // go_to(x, y, 0);
+            ATTITUDE_TARGET att_target;
+            att_target.cmd_vel = hover_vel;
+            att_target.h = 0;
 
             // if (get_land()) {
             //     change_state(LANDING);
