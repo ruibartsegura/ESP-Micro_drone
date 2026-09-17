@@ -23,7 +23,7 @@
 // Complementay
 #define ALPHA 0.98 // Complementary filter constant
 
-#define p 1121 // Air pressure at N.C. & 600m over sea level
+#define rho 1121 // Air pressure at N.C. & 600m over sea level
 #define A 0.003 // frontal cross-sectional area approx
 #define C 1.0 // drag coefficient approx
 #define g 9.8 // Gravity
