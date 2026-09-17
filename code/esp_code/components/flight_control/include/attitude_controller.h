@@ -2,6 +2,8 @@
 #define ATTITUDE_CONTROLLER_H
 
 #include <stdbool.h>
+#include <geometry_msgs/msg/twist.h>
+
 
 typedef struct roll_pitch_yaw {
     // Valores convertidos a unidades físicas
@@ -11,15 +13,15 @@ typedef struct roll_pitch_yaw {
     int64_t t_stamp;
 } RPY;
 
-typedef struct roll_pitch_yaw_rate {
-    // Valores convertidos a unidades físicas
-    float roll_rate;
-    float pitch_rate;
-    float yaw_rate;
-} RPY_rate;
+typedef struct attitude_target {
+    geometry_msgs__msg__Twist cmd_vel;
+    float h;
+} ATTITUDE_TARGET;
 
 // Start the task
 void init_attitude_controller();
+
+void control_attitude(ATTITUDE_TARGET attitude_target);
 
 
 #endif // ATTITUDE_CONTROLLER_H

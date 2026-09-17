@@ -31,9 +31,11 @@
 #define MAX_ANGLE 0.52 // 30º in rad
 
 // PID
-#define KP 1; // Proportional
-#define KI 1; // Integrative
-#define KD 1; // Derivative
+#define KP 1 // Proportional
+#define KI 1 // Integrative
+#define KD 1 // Derivative
+
+#define throttle_base 100 // Min throttle to hover
 
 RPY last_rpy;
 
@@ -110,7 +112,7 @@ void cmd_vel_2_RP(float *targ_roll, float *targ_pitch, float *targ_yaw, geometry
 // ============================================================
 //                        Attitude Main
 // ============================================================
-void control_attitude() {
+void control_attitude(ATTITUDE_TARGET attitude_target) {
   IMU imu_d;
 
   // External loop
@@ -134,7 +136,7 @@ void control_attitude() {
   get_roll_pitch(&roll, &pitch, &imu_d);
 
   // Get target roll & pitch
-  cmd_vel_2_RP(&targ_roll, &targ_pitch, &targ_yaw, get_cmd_vel());
+  cmd_vel_2_RP(&targ_roll, &targ_pitch, &targ_yaw, attitude_target.cmd_vel);
 
   // Get the error in the roll and pitch
   err_roll = targ_roll - roll;
@@ -159,12 +161,15 @@ void control_attitude() {
   pow_pitch = KP * err_pitch_rate;
   pow_yaw = KP * err_yaw_rate; // TODO hacer bien PID
 
+  // TODO añadir h al controlador
+
   // Motors power
   motor1 = throttle_base + pow_roll - pow_pitch - pow_yaw;
   motor2 = throttle_base - pow_roll - pow_pitch + pow_yaw;
   motor3 = throttle_base - pow_roll + pow_pitch - pow_yaw;
   motor4 = throttle_base + pow_roll + pow_pitch + pow_yaw;
 
+  // TODO convertir potencia a porcentaje
   motor_set_speed(1, motor1);
   motor_set_speed(2, motor2);
   motor_set_speed(3, motor3);
@@ -200,3 +205,7 @@ static void attitude_task(void *arg) {
 void init_attitude_controller() {
    xTaskCreate(attitude_task, "attitude_task", CONFIG_SYSTEM_TASK_STACK, NULL, CONFIG_SYSTEM_TASK_PRIO, NULL);
 }
+
+
+// TODO
+//  Revisar lógica de attitude_controller, que no dependa de system pero tome los calores de ahí
