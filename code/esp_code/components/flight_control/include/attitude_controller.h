@@ -21,7 +21,7 @@ typedef struct attitude_target {
 // Start the task
 void init_attitude_controller();
 
-void control_attitude(ATTITUDE_TARGET attitude_target);
+void control_attitude();
 
 
 #endif // ATTITUDE_CONTROLLER_H

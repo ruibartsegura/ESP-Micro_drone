@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "attitude_controller.h"
+
 void system_init(void);
 
 bool system_test(void);
@@ -31,8 +33,9 @@ static const int DISARMING          = 7;
 static const int ERROR              = 8;
 
 extern int state;
-//void change_state(int new_state);
 int get_state();
+
+ATTITUDE_TARGET get_attitude();
 
 // Checkers
 bool check_takeOff_2_hov(float h);
