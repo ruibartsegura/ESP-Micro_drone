@@ -21,8 +21,13 @@
 // How much error it's admitted in the altitude
 #define ALTITUDE_ERROR 5
 
+// Target of velocities + height
+ATTITUDE_TARGET att_target;
+
 // Hover velocity = 0;
-geometry_msgs__msg__Twist hover_vel; // TODO: revisar si se crea a 0 o vacio
+geometry_msgs__msg__Twist hover_vel = {0};
+
+
 
 int state = INIT;
 static bool is_init = false;
@@ -65,11 +70,17 @@ void change_state(int new_state) {
     state = new_state;
 }
 
-// Get the state-machine state 
+// Return the state-machine state 
 int get_state() {
     return state;
 }
 
+// Return the desired attitude for the drone
+ATTITUDE_TARGET get_attitude() {
+    return att_target;
+}
+
+// TODO: Ver código pq tal vez hay que moverlo a attitude_controller
 // Check if the take_off has reached the desired altitude
 bool check_takeOff_2_hov(float hov_h) {
     float h = 0; //get_h();
@@ -123,7 +134,6 @@ void state_machine(void) {
             break;
 
         case TAKING_OFF:
-            ATTITUDE_TARGET att_target;
             att_target.cmd_vel = hover_vel;
             att_target.h = get_take_off_alt();
 
@@ -133,22 +143,20 @@ void state_machine(void) {
             break;
 
         case HOVERING:
-            ATTITUDE_TARGET att_target;
             att_target.cmd_vel = hover_vel;
             att_target.h = get_take_off_alt();
 
 
-            if (new_vel()) {
-                change_state(EXTERNAL_CONTROL);
-            }
+            // if (new_vel()) {
+            //     change_state(EXTERNAL_CONTROL);
+            // }
 
-            if (get_land()) {
-                change_state(LANDING);
-            }
+            // if (get_land()) {
+            //     change_state(LANDING);
+            // }
             break;
 
         case EXTERNAL_CONTROL:
-            ATTITUDE_TARGET att_target;
             att_target.cmd_vel = get_cmd_vel(); // TODO: revisar caducidad del cmd_vel
             att_target.h = get_take_off_alt();
 
@@ -162,7 +170,6 @@ void state_machine(void) {
             break;
 
         case LANDING:
-            ATTITUDE_TARGET att_target;
             att_target.cmd_vel = hover_vel;
             att_target.h = 0;
 

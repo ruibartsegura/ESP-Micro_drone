@@ -30,7 +30,8 @@
 // Msg types
 #include <sensor_msgs/msg/imu.h>
 #include <std_msgs/msg/int32.h>
-#include <geometry_msgs/msg/twist.h>
+#include <geometry_msgs/msg/twist_stamped.h>
+#include <geometry_msgs/msg/pose_stamped.h>
 #include <my_msgs/msg/params.h>
 
 // Services types
@@ -40,6 +41,7 @@
 #include "imu.h"
 #include "system.h"
 #include "parameters.h"
+#include "sdkconfig.h"
 
 #include <pthread.h>
 
@@ -51,7 +53,18 @@
 #define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){printf("Failed status on line %d: %d. Aborting.\n",__LINE__,(int)temp_rc);vTaskDelete(NULL);}}
 #define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){printf("Failed status on line %d: %d. Continuing.\n",__LINE__,(int)temp_rc);}}
 
-#define N_HANDLERS 5
+#ifdef CONFIG_SIMULATION_ON
+    #define N_HANDLERS 7 // 5 Default + 2 for new subs(IMU, Height)
+
+#else
+    #define N_HANDLERS 5
+
+#endif
+
+
+// ============================================================
+//                       Parameters
+// ============================================================
 static const float MAX_ALT = 3.0f;
 static const float MIN_ALT = 0.5f;
 #define DEG_TO_RAD  0.017453293f  // pi / 180
@@ -70,7 +83,7 @@ rcl_subscription_t params_sub;
 std_msgs__msg__Int32 recv_msg;
 
 rcl_subscription_t cmd_vel_sub;
-geometry_msgs__msg__Twist cmd_vel_msg;
+geometry_msgs__msg__TwistStamped cmd_vel_msg;
 
 // ============================================================
 //                           Params
@@ -95,6 +108,26 @@ pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 // ============================================================
 bool take_off_ready = false;
 float altitude = MIN_ALT;
+
+// ============================================================
+//                  Simulation pubs & subs
+// ============================================================
+
+#ifdef CONFIG_SIMULATION_ON
+    // Subscribers
+    rcl_subscription_t imu_sub;
+    sensor_msgs__msg__Imu imu_sub_msg;
+
+    rcl_subscription_t height_sub;
+    geometry_msgs__msg__PoseStamped h_sub_msg;
+
+    // Publishers
+    #define N_MOTORS 4
+
+    rcl_publisher_t motors_pub[N_MOTORS];
+    geometry_msgs__msg__TwistStamped motors_msg[N_MOTORS];
+#endif
+
 
 // ============================================================
 //                         Checker
@@ -129,20 +162,23 @@ void param_callback(const void * msgin)
     pthread_mutex_unlock(&lock);
 }
 
+
 // ============================================================
 //                          CMD_VEL
 // ============================================================
 geometry_msgs__msg__Twist get_cmd_vel() {
-    return cmd_vel_msg;
+    return cmd_vel_msg.twist;
 }
 
 void cmd_vel_callback(const void * msgin)
 {
-    const geometry_msgs__msg__Twist * new_msg = (const geometry_msgs__msg__Twist *)msgin;
+    const geometry_msgs__msg__TwistStamped * new_msg = (const geometry_msgs__msg__TwistStamped *)msgin;
     pthread_mutex_lock(&lock);
     cmd_vel_msg = *new_msg;
     pthread_mutex_unlock(&lock);
 }
+
+
 // ============================================================
 //                           Take off
 // ============================================================
@@ -201,6 +237,7 @@ void takeoff_callback(const void * req_msg, void * res_msg) {
     rosidl_runtime_c__String__assign(&takeoff_res->reason, "OK");
 }
 
+
 // ============================================================
 //                         IMU publisher
 // ============================================================
@@ -224,6 +261,37 @@ void fill_imu_msg(const IMU * msg, sensor_msgs__msg__Imu * out) {
     out->linear_acceleration.z = msg->AcZ_g * GRAVITY_MS2;
 }
 
+
+// ============================================================
+//                    Simulation Subs/Pubs
+// ============================================================
+#ifdef CONFIG_SIMULATION_ON
+    // Imu Callback
+    void imu_callback(const void * msgin) {
+        const sensor_msgs__msg__Imu * new_msg = (const sensor_msgs__msg__Imu *)msgin;
+        pthread_mutex_lock(&lock);
+        imu_sub_msg = *new_msg;
+        pthread_mutex_unlock(&lock);
+    }
+
+    // Height Callback
+    void height_callback(const void * msgin) {
+        const geometry_msgs__msg__PoseStamped * new_msg = (const geometry_msgs__msg__PoseStamped *)msgin;
+        pthread_mutex_lock(&lock);
+        h_sub_msg = *new_msg;
+        pthread_mutex_unlock(&lock);
+    }
+
+    void pub_motor_speed(uint8_t motor_id, uint8_t motor_spd) {
+        int64_t now_ms = rmw_uros_epoch_millis();
+
+        motors_msg[motor_id].twist.linear.x = motor_spd;
+        motors_msg[motor_id].header.stamp.sec = now_ms / 1000;
+        RCSOFTCHECK(rcl_publish(&motors_pub[motor_id], &motors_msg[motor_id], NULL));      
+    }
+#endif
+
+
 // ============================================================
 //                 Main timer of ROS Coordinator
 // ============================================================
@@ -244,6 +312,7 @@ void timer_callback(rcl_timer_t * timer, int64_t last_call_time) {
         }
     }
 }
+
 
 // ============================================================
 //                       Ros task initializer
@@ -300,7 +369,7 @@ void micro_ros_task(void * arg) {
     // Init cmd vel sub
     RCCHECK(rclc_subscription_init_default(
         &cmd_vel_sub, &node,
-        ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
+        ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, TwistStamped),
         "cmd_vel"));
 
     // Init take off service
@@ -309,6 +378,35 @@ void micro_ros_task(void * arg) {
         ROSIDL_GET_SRV_TYPE_SUPPORT(my_msgs, srv, Takeoff),
         "takeoff_srv"
     ));
+
+    // Initialitation for simulation pub/sub
+    #ifdef CONFIG_SIMULATION_ON
+        // Init imu sub
+        RCCHECK(rclc_subscription_init_default(
+            &imu_sub, &node,
+            ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
+            "imu_4_drone"));
+
+        // Init height sub
+        RCCHECK(rclc_subscription_init_default(
+            &height_sub, &node,
+            ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, PoseStamped),
+            "h_4_drone"));
+
+        // Init motors pubs
+        char topic_name[16];
+        for (int x = 0; x < N_MOTORS; x++) {
+            // vel_m1, vel_m2...
+            snprintf(topic_name, sizeof(topic_name), "vel_m%d", x + 1); 
+
+            RCCHECK(rclc_publisher_init_default(
+                &motors_pub[x],
+                &node,
+                ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, TwistStamped),
+                topic_name));
+        }
+
+    #endif
 
     // Init main timer
     rcl_timer_t timer;
@@ -326,9 +424,21 @@ void micro_ros_task(void * arg) {
     RCCHECK(rclc_executor_add_timer(&executor, &timer));
     RCCHECK(rclc_executor_add_subscription(&executor, &params_sub, &recv_msg,
         &param_callback, ON_NEW_DATA));
+
     RCCHECK(rclc_executor_add_subscription(&executor, &cmd_vel_sub, &cmd_vel_msg,
         &cmd_vel_callback, ON_NEW_DATA));
-    RCCHECK(rclc_executor_add_service(&executor, &takeoff_srv, &takeoff_req, &takeoff_res, takeoff_callback));
+
+    RCCHECK(rclc_executor_add_service(&executor, &takeoff_srv, &takeoff_req,
+        &takeoff_res, takeoff_callback));
+
+    #ifdef CONFIG_SIMULATION_ON
+    RCCHECK(rclc_executor_add_subscription(&executor, &imu_sub,
+        &imu_sub_msg, &imu_callback, ON_NEW_DATA));
+
+    RCCHECK(rclc_executor_add_subscription(&executor, &height_sub,
+        &h_sub_msg, &height_callback, ON_NEW_DATA));
+    #endif
+
 
     int64_t last_log_us = esp_timer_get_time();
 

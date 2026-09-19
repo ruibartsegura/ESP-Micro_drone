@@ -70,7 +70,7 @@ void get_roll_pitch(float *roll, float *pitch, IMU *imu_d) {
 // ============================================================
 //               CMD_VEL -> desired Roll/Pitch
 // ============================================================
-void cmd_vel_2_RP(float *targ_roll, float *targ_pitch, float *targ_yaw, geometry_msgs__msg__Twist cmd_vel) {
+void cmd_vel_2_RP(float *targ_roll, float *targ_pitch, geometry_msgs__msg__Twist cmd_vel) {
     float roll, pitch, vx, vy, sign_x, sign_y;
 
     // Get input velocity
@@ -104,7 +104,6 @@ void cmd_vel_2_RP(float *targ_roll, float *targ_pitch, float *targ_yaw, geometry
 
     *targ_roll = roll;
     *targ_pitch = pitch;
-    *targ_yaw = cmd_vel.angular.z;
     return;
 }
 
@@ -112,13 +111,13 @@ void cmd_vel_2_RP(float *targ_roll, float *targ_pitch, float *targ_yaw, geometry
 // ============================================================
 //                        Attitude Main
 // ============================================================
-void control_attitude(ATTITUDE_TARGET attitude_target) {
+void control_attitude() {
   IMU imu_d;
 
   // External loop
   float roll, pitch;
-  float targ_roll, targ_pitch, targ_yaw;
-  float err_roll, err_pitch, targ_yaw;
+  float targ_roll, targ_pitch;
+  float err_roll, err_pitch;
   
   // Internal loop
   float roll_rate, pitch_rate, yaw_rate;
@@ -129,6 +128,8 @@ void control_attitude(ATTITUDE_TARGET attitude_target) {
   float pow_roll, pow_pitch, pow_yaw;
   float motor1, motor2, motor3, motor4;
 
+  ATTITUDE_TARGET attitude_target = get_attitude();
+
 
   // Get roll & pitch
   esp_err_t err = imu_get_data(&imu_d);
@@ -136,7 +137,7 @@ void control_attitude(ATTITUDE_TARGET attitude_target) {
   get_roll_pitch(&roll, &pitch, &imu_d);
 
   // Get target roll & pitch
-  cmd_vel_2_RP(&targ_roll, &targ_pitch, &targ_yaw, attitude_target.cmd_vel);
+  cmd_vel_2_RP(&targ_roll, &targ_pitch, attitude_target.cmd_vel);
 
   // Get the error in the roll and pitch
   err_roll = targ_roll - roll;
@@ -145,9 +146,10 @@ void control_attitude(ATTITUDE_TARGET attitude_target) {
   // Get the rate of roll & pitch
   targ_roll_rate = KP * err_roll;
   targ_pitch_rate = KP * err_pitch; // TODO: CLAMP | Cambiar nombre IMU acc_lin & roll_rate
+  targ_yaw_rate = attitude_target.cmd_vel.angular.z;
 
   // Get measured roll, pitch, yaw rate
-  roll_rate = imu_d.GyX_dps_;
+  roll_rate = imu_d.GyX_dps;
   pitch_rate = imu_d.GyY_dps; 
   yaw_rate = imu_d.GyZ_dps;
 
@@ -162,18 +164,19 @@ void control_attitude(ATTITUDE_TARGET attitude_target) {
   pow_yaw = KP * err_yaw_rate; // TODO hacer bien PID
 
   // TODO añadir h al controlador
+  // TODO unidades de throttle_base(Se puede hacer parametro del kconfig)
 
-  // Motors power
+  // Motors power.
   motor1 = throttle_base + pow_roll - pow_pitch - pow_yaw;
   motor2 = throttle_base - pow_roll - pow_pitch + pow_yaw;
   motor3 = throttle_base - pow_roll + pow_pitch - pow_yaw;
   motor4 = throttle_base + pow_roll + pow_pitch + pow_yaw;
 
-  // TODO convertir potencia a porcentaje
-  motor_set_speed(1, motor1);
-  motor_set_speed(2, motor2);
-  motor_set_speed(3, motor3);
-  motor_set_speed(4, motor4);
+  // Set mottor speed
+  set_motor_speed(1, motor1);
+  set_motor_speed(2, motor2);
+  set_motor_speed(3, motor3);
+  set_motor_speed(4, motor4);
 }
 
 static void attitude_task(void *arg) {

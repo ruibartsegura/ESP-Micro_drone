@@ -8,10 +8,10 @@
 
 
 // PIN configuration
-#define motor_1 CONFIG_LED_PIN_ESP
-#define motor_2 CONFIG_LED_PIN_RED
-#define motor_3 CONFIG_LED_PIN_GREEN
-#define motor_4 CONFIG_LED_PIN_BLUE // TODO poner bien pin motor
+#define motor_1 CONFIG_MOTOR01_PIN
+#define motor_2 CONFIG_MOTOR02_PIN
+#define motor_3 CONFIG_MOTOR03_PIN
+#define motor_4 CONFIG_MOTOR04_PIN
 
 // LEDC configuration
 #define LEDC_TIMER      LEDC_TIMER_0
@@ -25,7 +25,7 @@
 void motors_init(void);
 bool motors_test(void); // Check leds
 
-void motor_set_speed(uint8_t motor_id, uint8_t spd_percent);
+void set_motor_speed(uint8_t motor_id, uint8_t motor_spd);
 
 void motors_stop_all(void);
 
