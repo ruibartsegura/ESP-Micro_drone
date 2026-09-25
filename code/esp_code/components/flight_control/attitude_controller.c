@@ -145,6 +145,8 @@ void control_attitude() {
   float roll, pitch;
   float targ_roll, targ_pitch;
   float err_roll, err_pitch;
+  float targ_roll, targ_pitch;
+  float err_roll, err_pitch;
   
   // Internal loop
   float roll_rate, pitch_rate, yaw_rate;
@@ -171,6 +173,7 @@ void control_attitude() {
   get_roll_pitch(&roll, &pitch, &imu_d);
 
   // Get target roll & pitch
+  cmd_vel_2_RP(&targ_roll, &targ_pitch, attitude_target.cmd_vel);
   cmd_vel_2_RP(&targ_roll, &targ_pitch, attitude_target.cmd_vel);
 
   // Get the error in the roll and pitch
@@ -214,6 +217,11 @@ void control_attitude() {
   motor3 = pow_h - pow_roll + pow_pitch - pow_yaw;
   motor4 = pow_h + pow_roll + pow_pitch + pow_yaw;
 
+  // Set mottor speed
+  set_motor_speed(1, motor1);
+  set_motor_speed(2, motor2);
+  set_motor_speed(3, motor3);
+  set_motor_speed(4, motor4);
   // Set mottor speed
   set_motor_speed(1, motor1);
   set_motor_speed(2, motor2);

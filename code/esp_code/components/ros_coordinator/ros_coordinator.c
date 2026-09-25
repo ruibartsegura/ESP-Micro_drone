@@ -53,6 +53,9 @@
 #define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){printf("Failed status on line %d: %d. Aborting.\n",__LINE__,(int)temp_rc);vTaskDelete(NULL);}}
 #define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){printf("Failed status on line %d: %d. Continuing.\n",__LINE__,(int)temp_rc);}}
 
+// ============================================================
+//                       Parameters
+// ============================================================
 #ifdef CONFIG_SIMULATION_ON
     #define N_HANDLERS 7 // 5 Default + 2 for new subs(IMU, Height)
 
@@ -108,7 +111,6 @@ pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 // ============================================================
 bool take_off_ready = false;
 float altitude = MIN_ALT;
-
 // ============================================================
 //                  Simulation pubs & subs
 // ============================================================
@@ -163,6 +165,7 @@ void param_callback(const void * msgin)
 }
 
 
+
 // ============================================================
 //                          CMD_VEL
 // ============================================================
@@ -177,8 +180,6 @@ void cmd_vel_callback(const void * msgin)
     cmd_vel_msg = *new_msg;
     pthread_mutex_unlock(&lock);
 }
-
-
 // ============================================================
 //                           Take off
 // ============================================================
@@ -236,7 +237,6 @@ void takeoff_callback(const void * req_msg, void * res_msg) {
     takeoff_res->accepted = true;
     rosidl_runtime_c__String__assign(&takeoff_res->reason, "OK");
 }
-
 
 // ============================================================
 //                         IMU publisher
@@ -330,6 +330,7 @@ void timer_callback(rcl_timer_t * timer, int64_t last_call_time) {
 }
 
 
+
 // ============================================================
 //                       Ros task initializer
 //
@@ -385,6 +386,7 @@ void micro_ros_task(void * arg) {
     // Init cmd vel sub
     RCCHECK(rclc_subscription_init_default(
         &cmd_vel_sub, &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, TwistStamped),
         ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, TwistStamped),
         "cmd_vel"));
 
