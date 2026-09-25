@@ -387,7 +387,6 @@ void micro_ros_task(void * arg) {
     RCCHECK(rclc_subscription_init_default(
         &cmd_vel_sub, &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, TwistStamped),
-        ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, TwistStamped),
         "cmd_vel"));
 
     // Init take off service

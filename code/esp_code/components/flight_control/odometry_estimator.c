@@ -6,14 +6,16 @@
 
 #include <stdbool.h>
 
-#include "led.h"
+#include "odometry_estimator.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "esp_log.h"
 
-void led_init(void) {
+static bool is_init = false;
+
+void odom_estimator_init(void) {
     if (is_init) {
         return;
     }
@@ -22,7 +24,7 @@ void led_init(void) {
     is_init = true;
 }
 
-bool led_test(void) {
+bool odom_estimator_test(void) {
     if (!is_init) {
         return false;
     }

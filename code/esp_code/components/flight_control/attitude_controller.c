@@ -145,8 +145,6 @@ void control_attitude() {
   float roll, pitch;
   float targ_roll, targ_pitch;
   float err_roll, err_pitch;
-  float targ_roll, targ_pitch;
-  float err_roll, err_pitch;
   
   // Internal loop
   float roll_rate, pitch_rate, yaw_rate;
