@@ -18,6 +18,8 @@
 
 static const char *TAG = "MOTOR";
 
+static bool drone_armed = false;
+
 static bool is_init = false;
 
 // GPIO pin and LEDC channel are just used with real drone, no simulation
@@ -37,10 +39,23 @@ static bool is_init = false;
     };
 #endif
 
+void arm_motors() {
+    drone_armed = true;
+}
+
+void disarm_motors() {
+    drone_armed = false;
+}
+
 void set_motor_speed(uint8_t motor_id, uint8_t motor_spd) {
     // Check the motor id is valid
     if (motor_id >= N_MOTORS) {
         return;
+    }
+
+    // When drone is disarmed, the motors doesn't work
+    if (!drone_armed) {
+        motor_spd = 0;
     }
 
     // With simulation pass the motor speed to ROS2 pub
@@ -48,7 +63,7 @@ void set_motor_speed(uint8_t motor_id, uint8_t motor_spd) {
         pub_motor_speed(motor_id, motor_spd);
 
     #else
-        uint8_t spd_percent = 0; // TODO Cambiar
+        uint8_t spd_percent = motor_spd; // TODO Cambiar necesito modelo real
         // Clamp motor spdeed
         if (spd_percent > 100) {
             spd_percent = 100;
@@ -62,7 +77,9 @@ void set_motor_speed(uint8_t motor_id, uint8_t motor_spd) {
 void motors_stop_all(void) {
     // With simulation pass the motor speed to ROS2 pub
     #ifdef CONFIG_SIMULATION_ON
-
+        for (int i = 0; i < N_MOTORS; i++) {
+            pub_motor_speed(i+1, 0);
+        }
 
     #else
         for (int i = 0; i < N_MOTORS; i++) {

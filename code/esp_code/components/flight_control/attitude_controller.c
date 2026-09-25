@@ -10,6 +10,7 @@
 #include "attitude_controller.h"
 
 #include "imu.h"
+#include "height.h"
 #include "system.h"
 #include "ros_coordinator.h"
 #include "motors.h"
@@ -17,12 +18,12 @@
 #include "esp_log.h"
 
 
-
 #define SYSTEM_TASK_PERIOD_MS 15 // 150HZ*
 
 // Complementay
 #define ALPHA 0.98 // Complementary filter constant
 
+// Constants for formula (Vel->Position (Roll/Pitch))
 #define rho 1121 // Air pressure at N.C. & 600m over sea level
 #define A 0.003 // frontal cross-sectional area approx
 #define C 1.0 // drag coefficient approx
@@ -38,9 +39,31 @@
 #define throttle_base 100 // Min throttle to hover
 
 RPY last_rpy;
+float last_h, last_vel_Z;
+float err_h;
 
-float complementary_filter(float angle, float gyro, float alpha){
-  return (alpha * angle + (1.0 - alpha) * gyro);
+
+bool check_h_reached() {
+  return true; // TODO terminar
+}
+
+
+
+float complementary_filter(float a, float b, float alpha) {
+  return (alpha * a + (1.0 - alpha) * b);
+}
+
+// ============================================================
+//              Getting height & filtering it
+// ============================================================
+float get_h(float h_d, IMU *imu_d) {
+  float dt = (imu_d->Time_stamp - last_rpy.t_stamp) / 1000000.0f; // Time difference
+
+  float vel_z = imu_d->Acc_lin_Z * dt + last_vel_Z;
+  float h = vel_z * dt + last_h;
+  
+  // Calculate the power for altitude | a = calculated h, b = sensed h
+  return complementary_filter(h, h_d, ALPHA);
 }
 
 // ============================================================
@@ -49,14 +72,16 @@ float complementary_filter(float angle, float gyro, float alpha){
 void get_roll_pitch(float *roll, float *pitch, IMU *imu_d) {
   float dt = (imu_d->Time_stamp - last_rpy.t_stamp) / 1000000.0f; // Time difference
 
-  float roll_acc  = atan2f(imu_d->AcY_g, imu_d->AcZ_g) * 180.0f / M_PI;
-  float pitch_acc = atan2f(-imu_d->AcX_g, sqrtf(imu_d->AcY_g*imu_d->AcY_g + imu_d->AcZ_g*imu_d->AcZ_g));
+  float roll_acc  = atan2f(imu_d->Acc_lin_Y, imu_d->Acc_lin_Z) * 180.0f / M_PI;
+  float pitch_acc =
+    atan2f(-imu_d->Acc_lin_X, sqrtf(imu_d->Acc_lin_Y*imu_d->Acc_lin_Y + imu_d->Acc_lin_Z*imu_d->Acc_lin_Z)) *
+    180.0f / M_PI;
 
 
-  float roll_angle = (last_rpy.roll + imu_d->GyX_dps * dt);
-  float pitch_angle = (last_rpy.pitch  + imu_d->GyY_dps * dt);
+  float roll_angle = (last_rpy.roll + imu_d->Vel_ang_X * dt);
+  float pitch_angle = (last_rpy.pitch  + imu_d->Vel_ang_Y * dt);
 
-
+  // a = angle, b = angle acceleration
   *roll = complementary_filter(roll_angle, roll_acc, ALPHA);
   *pitch = complementary_filter(pitch_angle, pitch_acc, ALPHA);
 
@@ -112,7 +137,9 @@ void cmd_vel_2_RP(float *targ_roll, float *targ_pitch, geometry_msgs__msg__Twist
 //                        Attitude Main
 // ============================================================
 void control_attitude() {
+  // Sensors data
   IMU imu_d;
+  geometry_msgs__msg__PoseStamped h_d;
 
   // External loop
   float roll, pitch;
@@ -124,16 +151,23 @@ void control_attitude() {
   float targ_roll_rate, targ_pitch_rate, targ_yaw_rate;
   float err_roll_rate, err_pitch_rate, err_yaw_rate;
 
+  // Height
+  float pow_h, err_h;
+
   // Power for the motors
   float pow_roll, pow_pitch, pow_yaw;
   float motor1, motor2, motor3, motor4;
 
+
+  // Get the desired attitude of the drone
   ATTITUDE_TARGET attitude_target = get_attitude();
 
+  // Get sensors data
+  esp_err_t err_imu = get_imu_data(&imu_d);
+  esp_err_t err_height = get_height_data(&h_d);
 
-  // Get roll & pitch
-  esp_err_t err = imu_get_data(&imu_d);
-
+  // EXTERNAL LOOP
+  // Get Roll & Pitch
   get_roll_pitch(&roll, &pitch, &imu_d);
 
   // Get target roll & pitch
@@ -143,34 +177,42 @@ void control_attitude() {
   err_roll = targ_roll - roll;
   err_pitch = targ_pitch - pitch;
 
+
+  // INTERNAL LOOP
   // Get the rate of roll & pitch
   targ_roll_rate = KP * err_roll;
-  targ_pitch_rate = KP * err_pitch; // TODO: CLAMP | Cambiar nombre IMU acc_lin & roll_rate
+  targ_pitch_rate = KP * err_pitch; // TODO: CLAMP 
   targ_yaw_rate = attitude_target.cmd_vel.angular.z;
 
   // Get measured roll, pitch, yaw rate
-  roll_rate = imu_d.GyX_dps;
-  pitch_rate = imu_d.GyY_dps; 
-  yaw_rate = imu_d.GyZ_dps;
+  roll_rate = imu_d.Vel_ang_X;
+  pitch_rate = imu_d.Vel_ang_Y; 
+  yaw_rate = imu_d.Vel_ang_Z;
 
   // Get diff between measured and desired
   err_roll_rate = targ_roll_rate - roll_rate;
   err_pitch_rate = targ_pitch_rate - pitch_rate;
   err_yaw_rate = targ_yaw_rate - yaw_rate;
 
-
+  // Calculate the power needed for the motors
   pow_roll = KP * err_roll_rate;
   pow_pitch = KP * err_pitch_rate;
   pow_yaw = KP * err_yaw_rate; // TODO hacer bien PID
 
-  // TODO añadir h al controlador
+
+  // ALTITUDE
+  float h = get_h(h_d.pose.position.z, &imu_d);
+  pow_h = throttle_base + h;
+  
+  err_h = attitude_target.h - h; // Value to check in check_h_reached.
+
   // TODO unidades de throttle_base(Se puede hacer parametro del kconfig)
 
   // Motors power.
-  motor1 = throttle_base + pow_roll - pow_pitch - pow_yaw;
-  motor2 = throttle_base - pow_roll - pow_pitch + pow_yaw;
-  motor3 = throttle_base - pow_roll + pow_pitch - pow_yaw;
-  motor4 = throttle_base + pow_roll + pow_pitch + pow_yaw;
+  motor1 = pow_h + pow_roll - pow_pitch - pow_yaw;
+  motor2 = pow_h - pow_roll - pow_pitch + pow_yaw;
+  motor3 = pow_h - pow_roll + pow_pitch - pow_yaw;
+  motor4 = pow_h + pow_roll + pow_pitch + pow_yaw;
 
   // Set mottor speed
   set_motor_speed(1, motor1);
@@ -193,22 +235,18 @@ static void attitude_task(void *arg) {
                     (unsigned)(free_words * sizeof(StackType_t)));
       }
 
-
-      // When the drone is disarmed the attitude controller is no longer needed
-      if (get_state() == 7) { // 7 = Disarming
-        vTaskDelete(NULL); // Delete task
-      }
-
       vTaskDelay(pdMS_TO_TICKS(SYSTEM_TASK_PERIOD_MS));
 
   }
 }
 
-// It will be initialized when the drone is armed
+
 void init_attitude_controller() {
    xTaskCreate(attitude_task, "attitude_task", CONFIG_SYSTEM_TASK_STACK, NULL, CONFIG_SYSTEM_TASK_PRIO, NULL);
 }
 
 
-// TODO
-//  Revisar lógica de attitude_controller, que no dependa de system pero tome los calores de ahí
+// TODO:
+//   *  Cambiar controll atitude para hacer "PID" en funciones
+//
+//   *  Hacer test para h, R, P, Y, motor final(rpm??)

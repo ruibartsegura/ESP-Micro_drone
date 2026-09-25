@@ -243,7 +243,7 @@ void takeoff_callback(const void * req_msg, void * res_msg) {
 // ============================================================
 // Fill IMU msg
 void fill_imu_msg(const IMU * msg, sensor_msgs__msg__Imu * out) {
-    int64_t now_ms = rmw_uros_epoch_millis();
+    int64_t now_ms = esp_timer_get_time();
 
     out->header.stamp.sec = now_ms / 1000;
     out->header.stamp.nanosec = (now_ms % 1000) * 1000000;
@@ -252,13 +252,13 @@ void fill_imu_msg(const IMU * msg, sensor_msgs__msg__Imu * out) {
     // giro en linear_acceleration) y sin convertir unidades.
     // sensor_msgs/Imu espera angular_velocity en rad/s y
     // linear_acceleration en m/s².
-    out->angular_velocity.x = msg->GyX_dps * DEG_TO_RAD;
-    out->angular_velocity.y = msg->GyY_dps * DEG_TO_RAD;
-    out->angular_velocity.z = msg->GyZ_dps * DEG_TO_RAD;
+    out->angular_velocity.x = msg->Vel_ang_X * DEG_TO_RAD;
+    out->angular_velocity.y = msg->Vel_ang_Y * DEG_TO_RAD;
+    out->angular_velocity.z = msg->Vel_ang_Z * DEG_TO_RAD;
 
-    out->linear_acceleration.x = msg->AcX_g * GRAVITY_MS2;
-    out->linear_acceleration.y = msg->AcY_g * GRAVITY_MS2;
-    out->linear_acceleration.z = msg->AcZ_g * GRAVITY_MS2;
+    out->linear_acceleration.x = msg->Acc_lin_X * GRAVITY_MS2;
+    out->linear_acceleration.y = msg->Acc_lin_Y * GRAVITY_MS2;
+    out->linear_acceleration.z = msg->Acc_lin_Z * GRAVITY_MS2;
 }
 
 
@@ -267,6 +267,14 @@ void fill_imu_msg(const IMU * msg, sensor_msgs__msg__Imu * out) {
 // ============================================================
 #ifdef CONFIG_SIMULATION_ON
     // Imu Callback
+    sensor_msgs__msg__Imu get_imu_sim(){
+        pthread_mutex_lock(&lock);
+        sensor_msgs__msg__Imu msg = imu_sub_msg;
+        pthread_mutex_unlock(&lock);
+
+        return msg;
+    }
+
     void imu_callback(const void * msgin) {
         const sensor_msgs__msg__Imu * new_msg = (const sensor_msgs__msg__Imu *)msgin;
         pthread_mutex_lock(&lock);
@@ -275,6 +283,14 @@ void fill_imu_msg(const IMU * msg, sensor_msgs__msg__Imu * out) {
     }
 
     // Height Callback
+    geometry_msgs__msg__PoseStamped get_height_sim(){
+        pthread_mutex_lock(&lock);
+        geometry_msgs__msg__PoseStamped msg = h_sub_msg;
+        pthread_mutex_unlock(&lock);
+
+        return msg;
+    }
+
     void height_callback(const void * msgin) {
         const geometry_msgs__msg__PoseStamped * new_msg = (const geometry_msgs__msg__PoseStamped *)msgin;
         pthread_mutex_lock(&lock);
@@ -283,10 +299,10 @@ void fill_imu_msg(const IMU * msg, sensor_msgs__msg__Imu * out) {
     }
 
     void pub_motor_speed(uint8_t motor_id, uint8_t motor_spd) {
-        int64_t now_ms = rmw_uros_epoch_millis();
+        int64_t now_ms = esp_timer_get_time();
 
         motors_msg[motor_id].twist.linear.x = motor_spd;
-        motors_msg[motor_id].header.stamp.sec = now_ms / 1000;
+        motors_msg[motor_id].header.stamp.nanosec = now_ms * 1000;
         RCSOFTCHECK(rcl_publish(&motors_pub[motor_id], &motors_msg[motor_id], NULL));      
     }
 #endif
@@ -303,7 +319,7 @@ void timer_callback(rcl_timer_t * timer, int64_t last_call_time) {
         }
 
         IMU imu_data;
-        esp_err_t err = imu_get_data(&imu_data);
+        esp_err_t err = get_imu_data(&imu_data);
         if (err == ESP_OK) {
             fill_imu_msg(&imu_data, &imu_msg);
             RCSOFTCHECK(rcl_publish(&imu_pub, &imu_msg, NULL));

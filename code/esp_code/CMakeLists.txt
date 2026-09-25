@@ -7,6 +7,7 @@ set(__PROJECT_GROUP_LINK_COMPONENTS ON)
 set(PLANE_COMPONENT_DIRS 
         ./components/drivers/leds
         ./components/drivers/imu
+        ./components/drivers/height
         ./components/drivers/motors
         ./components/configurations/parameters
         ./components/ros_coordinator

@@ -22,6 +22,10 @@
 
 #define N_MOTORS 4
 
+void arm_motors();
+
+void disarm_motors();
+
 void motors_init(void);
 bool motors_test(void); // Check leds
 

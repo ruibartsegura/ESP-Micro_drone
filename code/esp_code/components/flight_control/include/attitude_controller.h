@@ -18,10 +18,12 @@ typedef struct attitude_target {
     float h;
 } ATTITUDE_TARGET;
 
-// Start the task
-void init_attitude_controller();
+
+bool check_h_reached();
 
 void control_attitude();
 
+// Start the task
+void init_attitude_controller();
 
 #endif // ATTITUDE_CONTROLLER_H

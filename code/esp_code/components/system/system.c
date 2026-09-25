@@ -13,10 +13,15 @@
 // Drivers
 #include "led.h"
 #include "imu.h"
+#include "height.h"
+#include "motors.h"
+
 #include "attitude_controller.h"
 
 // Microros
 #include "ros_coordinator.h"
+
+#define SYSTEM_TASK_PERIOD_MS 20
 
 // How much error it's admitted in the altitude
 #define ALTITUDE_ERROR 5
@@ -44,9 +49,19 @@ void system_init(void) {
     imu_init();
 
     vTaskDelay(pdMS_TO_TICKS(500));
-    led_on(LED_BLUE);
 
+    height_init();
+
+    vTaskDelay(pdMS_TO_TICKS(500));
     
+    motors_init();
+
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    init_attitude_controller();
+
+    vTaskDelay(pdMS_TO_TICKS(500));
+
     ros_init(); // último en init
 
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -59,6 +74,7 @@ bool system_test(void) {
 
     test &= led_test();
     test &= imu_test();
+    test &= height_test();
     test &= ros_test();
 
     return test;
@@ -117,14 +133,13 @@ void state_machine(void) {
             break;
 
         case ARMING:
-            // start_engine();
+            arm_motors();
 
             if(get_take_off_ready()) {
                 for(int t=0; t < 3; t++) {
                     led_on(LED_BLUE);
                     vTaskDelay(pdMS_TO_TICKS(150));
                 }
-
 
                 change_state(TAKING_OFF);
             } else {
@@ -179,7 +194,9 @@ void state_machine(void) {
             break;
 
         case DISARMING:
-            // shut_down_engine();
+            motors_stop_all();
+            disarm_motors();
+
             break;
 
         case ERROR:
@@ -188,12 +205,6 @@ void state_machine(void) {
     }
 }
 
-// El delay es importante: la S2-mini es single-core
-// (CONFIG_FREERTOS_UNICORE=y). Sin ceder CPU en cada vuelta, estados
-// sin delay interno (CHECKING, HOVERING, ERROR...) acapararían el
-// único core, matarían de hambre a la tarea IDLE y dispararían el
-// Task Watchdog Timer (reset inesperado del ESP32).
-#define SYSTEM_TASK_PERIOD_MS 20
 
 static void system_task(void *arg) {
     (void)arg;
@@ -220,8 +231,5 @@ void system_start(void) {
 // TODO
 //      Implementar get_take_off() en ros_coordinator
 // 
-//      Implementar go_to(x, y, h) en X
-//
 //      Implementar params en configuration, hacer get/set para modificarlo con ros_coordinator
-//
 //

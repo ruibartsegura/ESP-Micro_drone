@@ -103,7 +103,7 @@ esp_err_t mpu6050_read_raw_data(i2c_port_t i2c_num,
     *gyro_y  = (int16_t)((data[10] << 8) | data[11]);
     *gyro_z  = (int16_t)((data[12] << 8) | data[13]);
 
-    *t_stamp = esp_timer_get_time();
+    *t_stamp = esp_timer_get_time() * 1000; // Nanosec
 
     return ESP_OK;
 }

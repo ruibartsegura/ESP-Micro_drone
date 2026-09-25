@@ -590,9 +590,9 @@
       "idf": "",
       "netlist": "",
       "plot": "production/drone/",
-      "pos_files": "production/drone/",
+      "pos_files": "production",
       "specctra_dsn": "",
-      "step": "",
+      "step": "production/drone.step",
       "svg": "",
       "vrml": ""
     },

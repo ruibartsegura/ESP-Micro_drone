@@ -3,52 +3,43 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <sensor_msgs/msg/imu.h>
+
+
 #include "esp_err.h"
 #include "driver/i2c.h"
+
 #include "sdkconfig.h"
 #include "mpu6050.h"
+#include "ros_coordinator.h"
 
-// ---- I2C bus configuration ----
-#define I2C_MASTER_NUM       I2C_NUM_0
-#define I2C_MASTER_SDA_IO    CONFIG_I2C0_PIN_SDA   // I2C SDA pin
-#define I2C_MASTER_SCL_IO    CONFIG_I2C0_PIN_SCL   // I2C SCL pin
-#define I2C_MASTER_FREQ_HZ   400000
-#define ESP_INTR_FLAG_DEFAULT 0
+// With simulation skip this params
+#ifndef CONFIG_SIMULATION_ON
+    // ---- I2C bus configuration ----
+    #define I2C_MASTER_NUM       I2C_NUM_0
+    #define I2C_MASTER_SDA_IO    CONFIG_I2C0_PIN_SDA   // I2C SDA pin
+    #define I2C_MASTER_SCL_IO    CONFIG_I2C0_PIN_SCL   // I2C SCL pin
+    #define I2C_MASTER_FREQ_HZ   400000
+    #define ESP_INTR_FLAG_DEFAULT 0
+#endif
 
 typedef struct imu_data {
     // Valores convertidos a unidades físicas
-    float AcX_g;
-    float AcY_g;
-    float AcZ_g;
-    float GyX_dps;
-    float GyY_dps;
-    float GyZ_dps;
+    float Acc_lin_X;
+    float Acc_lin_Y;
+    float Acc_lin_Z;
+    float Vel_ang_X;
+    float Vel_ang_Y;
+    float Vel_ang_Z;
     int64_t Time_stamp;
 } IMU;
 
-/**
- * @brief Inicializa el bus I2C, el MPU6050 y calibra sesgos.
- *        Idempotente: si ya está inicializado, no hace nada.
- */
+
 void imu_init(void);
 
-/**
- * @brief Indica si el driver ha sido inicializado correctamente.
- */
 bool imu_test(void);
 
-/**
- * @brief Lee los datos crudos del MPU6050, actualiza el cuaternión de
- *        orientación y devuelve el resultado.
- *
- * @param[out] data Puntero a la estructura donde se guardará el resultado.
- *                   No se modifica si la función devuelve un error.
- * @return ESP_OK si todo fue bien.
- *         ESP_ERR_INVALID_ARG si data es NULL.
- *         ESP_ERR_INVALID_STATE si el driver no ha sido inicializado.
- *         Código de error de I2C/MPU6050 en caso de fallo de lectura.
- */
-esp_err_t imu_get_data(IMU *data);
+esp_err_t get_imu_data(IMU *data);
 
 
 // ---- Comprobación de estabilidad previa al armado ----

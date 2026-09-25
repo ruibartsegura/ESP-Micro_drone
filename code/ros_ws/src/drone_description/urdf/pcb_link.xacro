@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+    IMPORTANTE:
+    El XML que exportaste desde tu CAD (FreeCAD/SolidWorks) es solo una lista
+    de <collision> de la placa (PCB + ESP32-S2 + IMU GY-87 + conectores).
+    No es un <link> completo, así que aquí lo envolvemos dentro de uno.
+
+    PASOS que tienes que hacer tú:
+      1. Copia TODO el bloque de <collision>...</collision> que exportaste
+         (las ~500 entradas) y pégalo donde pone <!-- AQUI TUS COLLISIONS -->.
+      2. Sustituye cualquier "package://$drone$/..." por
+         "package://drone_description/..." (ya lo dejo así de ejemplo abajo).
+      3. Copia TODOS los .dae referenciados (pcb_9cbb.dae, esp32s2v3.dae,
+         gy87_10dof_imu_pad*.dae, pads*.dae, bottomtext*.dae, etc.) dentro de:
+             drone_description/meshes/
+         (son los ficheros que tu exportador de FreeCAD generó junto al URDF,
+          normalmente en una carpeta "meshes" al lado del urdf original).
+  -->
+
+  <link name="pcb_link">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://drone_description/meshes/pcb_9cbb.dae"/>
+      </geometry>
+    </visual>
+
+    <!-- AQUI TUS COLLISIONS (pega el bloque completo que ya tienes) -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0.0 0.0 0.0"/>
+      <geometry>
+        <mesh filename="package://drone_description/meshes/pcb_9cbb.dae"/>
+      </geometry>
+    </collision>
+    <!-- ... el resto de las ~500 entradas van aquí ... -->
+
+    <inertial>
+      <!-- Placa pequeña y ligera: valores aproximados, ajusta si conoces el peso real -->
+      <mass value="0.03"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
+    </inertial>
+  </link>
+
+</robot>
