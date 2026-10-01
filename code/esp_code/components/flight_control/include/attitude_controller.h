@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <geometry_msgs/msg/twist.h>
+#include "sdkconfig.h"
 
 
 typedef struct roll_pitch_yaw {

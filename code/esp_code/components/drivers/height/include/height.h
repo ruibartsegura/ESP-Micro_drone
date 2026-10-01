@@ -17,7 +17,7 @@
 // With simulation skip this params
 #ifndef CONFIG_SIMULATION_ON
     // ---- I2C bus configuration ----
-    #define I2C_MASTER_NUM       I2C_NUM_0
+    #define I2C_MODE_MASTER       I2C_NUM_0
     #define I2C_MASTER_SDA_IO    CONFIG_I2C0_PIN_SDA   // I2C SDA pin
     #define I2C_MASTER_SCL_IO    CONFIG_I2C0_PIN_SCL   // I2C SCL pin
     #define I2C_MASTER_FREQ_HZ   400000

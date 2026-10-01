@@ -186,6 +186,42 @@ menu "X-WING Config"
             help
                 Priority of imu task, higher value means higher priority
 
+        config HEIGHT_TASK_STACK
+            int "Stack the height (Bytes)"
+            default 3200
+            help
+                Stack size in Bytes of the Height task
+
+        config HEIGHT_TASK_PRIO
+            int "Priority of the height task"
+            default 5
+            help
+                Priority of height task, higher value means higher priority
+
+        config ODOM_TASK_STACK
+            int "Stack the odom (Bytes)"
+            default 3200
+            help
+                Stack size in Bytes of the Odom task
+
+        config ODOM_TASK_PRIO
+            int "Priority of the odom task"
+            default 3
+            help
+                Priority of odom task, higher value means higher priority
+
+        config ATTITUDE_TASK_STACK
+            int "Stack the odom (Bytes)"
+            default 4900
+            help
+                Stack size in Bytes of the Attitude task
+
+        config ATTITUDE_TASK_PRIO
+            int "Priority of the odom task"
+            default 5
+            help
+                Priority of attitude task, higher value means higher priority
+
         config MICRO_ROS_STACK
             int "Stack the micro-ROS app (Bytes)"
             default 16000

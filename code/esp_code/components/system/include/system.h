@@ -31,6 +31,8 @@ static const int EXTERNAL_CONTROL   = 5;
 static const int LANDING            = 6;
 static const int DISARMING          = 7;
 static const int ERROR              = 8;
+//TODO cambiar por enum
+
 
 extern int state;
 int get_state();

@@ -233,3 +233,4 @@ void system_start(void) {
 // 
 //      Implementar params en configuration, hacer get/set para modificarlo con ros_coordinator
 //
+//      Hacer cambios de estados...

@@ -17,6 +17,8 @@
 
 #include "esp_log.h"
 
+#include "sdkconfig.h"
+
 
 #define SYSTEM_TASK_PERIOD_MS 15 // 150HZ*
 
@@ -38,16 +40,28 @@
 
 #define throttle_base 100 // Min throttle to hover
 
+// Allowed diference between target adn actual height in 
+float DIFF_H_ALLOWED = 0.01; // In meters
+
 RPY last_rpy;
 float last_h, last_vel_Z;
 float err_h;
 
 
+typedef enum {
+    MOTOR_1,
+    MOTOR_2,
+    MOTOR_3,
+    MOTOR_4
+} MotorsNum;
+
 bool check_h_reached() {
-  return true; // TODO terminar
+  if (fabsf(err_h) <= DIFF_H_ALLOWED) {
+    return true;
+  } else {
+    return false;
+  }
 }
-
-
 
 float complementary_filter(float a, float b, float alpha) {
   return (alpha * a + (1.0 - alpha) * b);
@@ -70,7 +84,10 @@ float get_h(float h_d, IMU *imu_d) {
 //                  Getting Roll Pitch Yaw
 // ============================================================
 void get_roll_pitch(float *roll, float *pitch, IMU *imu_d) {
-  float dt = (imu_d->Time_stamp - last_rpy.t_stamp) / 1000000.0f; // Time difference
+  float dt = (imu_d->Time_stamp - last_rpy.t_stamp) / 1000000000.0f; // Time difference (ns->s)
+  if (dt <= 0.0f || dt > 0.1f) {
+    dt = 0.0f;
+  }
 
   float roll_acc  = atan2f(imu_d->Acc_lin_Y, imu_d->Acc_lin_Z) * 180.0f / M_PI;
   float pitch_acc =
@@ -116,15 +133,19 @@ void cmd_vel_2_RP(float *targ_roll, float *targ_pitch, geometry_msgs__msg__Twist
     }
 
     // Get the roll and pitch for the input vel
-    roll  = sign_x * atan2f((C*rho*A*vx*vx), (2*m*g));
-    pitch = sign_y * atan2f((C*rho*A*vy*vy), (2*m*g));
+    roll  = sign_x * atan2f((C*rho*A*vy*vy), (2*m*g));
+    pitch = sign_y * atan2f((C*rho*A*vx*vx), (2*m*g));
 
     // Clamp result at 30º max
     if (roll > MAX_ANGLE) {
-        roll = MAX_ANGLE;
+      roll = MAX_ANGLE;
+    } else if (roll < -MAX_ANGLE) {
+      roll = -MAX_ANGLE;
     }
     if (pitch > MAX_ANGLE) {
-        pitch = MAX_ANGLE;
+      pitch = MAX_ANGLE;
+    } else if (pitch < -MAX_ANGLE) {
+      pitch = -MAX_ANGLE;
     }
 
     *targ_roll = roll;
@@ -166,6 +187,10 @@ void control_attitude() {
   esp_err_t err_imu = get_imu_data(&imu_d);
   esp_err_t err_height = get_height_data(&h_d);
 
+  if (err_imu != ESP_OK || err_height != ESP_OK) {
+    return;
+  }
+
   // EXTERNAL LOOP
   // Get Roll & Pitch
   get_roll_pitch(&roll, &pitch, &imu_d);
@@ -175,15 +200,15 @@ void control_attitude() {
   cmd_vel_2_RP(&targ_roll, &targ_pitch, attitude_target.cmd_vel);
 
   // Get the error in the roll and pitch
-  err_roll = targ_roll - roll;
-  err_pitch = targ_pitch - pitch;
+  err_roll = targ_roll * 180.0f/M_PI - roll;
+  err_pitch = targ_pitch * 180.0f/M_PI - pitch;
 
 
   // INTERNAL LOOP
   // Get the rate of roll & pitch
   targ_roll_rate = KP * err_roll;
   targ_pitch_rate = KP * err_pitch; // TODO: CLAMP 
-  targ_yaw_rate = attitude_target.cmd_vel.angular.z;
+  targ_yaw_rate = attitude_target.cmd_vel.angular.z * 180.0f/M_PI;
 
   // Get measured roll, pitch, yaw rate
   roll_rate = imu_d.Vel_ang_X;
@@ -202,10 +227,10 @@ void control_attitude() {
 
 
   // ALTITUDE
-  float h = get_h(h_d.pose.position.z, &imu_d);
+  float h = get_h(h_d.pose.position.z, &imu_d); // Height calculated
   pow_h = throttle_base + h;
   
-  err_h = attitude_target.h - h; // Value to check in check_h_reached.
+  err_h = attitude_target.h - h; // Distance between target and actual h.
 
   // TODO unidades de throttle_base(Se puede hacer parametro del kconfig)
 
@@ -216,15 +241,10 @@ void control_attitude() {
   motor4 = pow_h + pow_roll + pow_pitch + pow_yaw;
 
   // Set mottor speed
-  set_motor_speed(1, motor1);
-  set_motor_speed(2, motor2);
-  set_motor_speed(3, motor3);
-  set_motor_speed(4, motor4);
-  // Set mottor speed
-  set_motor_speed(1, motor1);
-  set_motor_speed(2, motor2);
-  set_motor_speed(3, motor3);
-  set_motor_speed(4, motor4);
+  set_motor_speed(MOTOR_1, motor1);
+  set_motor_speed(MOTOR_2, motor2);
+  set_motor_speed(MOTOR_3, motor3);
+  set_motor_speed(MOTOR_4, motor4);
 }
 
 static void attitude_task(void *arg) {
@@ -248,7 +268,7 @@ static void attitude_task(void *arg) {
 
 
 void init_attitude_controller() {
-   xTaskCreate(attitude_task, "attitude_task", CONFIG_SYSTEM_TASK_STACK, NULL, CONFIG_SYSTEM_TASK_PRIO, NULL);
+   xTaskCreate(attitude_task, "attitude_task", CONFIG_ATTITUDE_TASK_STACK, NULL, CONFIG_ATTITUDE_TASK_PRIO, NULL);
 }
 
 
