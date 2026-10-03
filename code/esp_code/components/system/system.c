@@ -10,6 +10,9 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 
+// Global_data
+#include "state.h"
+
 // Drivers
 #include "led.h"
 #include "imu.h"
@@ -33,8 +36,7 @@ ATTITUDE_TARGET att_target;
 geometry_msgs__msg__Twist hover_vel = {0};
 
 
-
-int state = INIT;
+sm_states_t state = INIT;
 static bool is_init = false;
 
 void system_init(void) {
@@ -42,7 +44,11 @@ void system_init(void) {
         return;
     }
 
-    led_init(); // Primero en init
+    state_init();
+
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    led_init();
 
     vTaskDelay(pdMS_TO_TICKS(500));
 
@@ -62,7 +68,7 @@ void system_init(void) {
 
     vTaskDelay(pdMS_TO_TICKS(500));
 
-    ros_init(); // último en init
+    ros_init(); // last init
 
     vTaskDelay(pdMS_TO_TICKS(1000));
 
@@ -84,11 +90,7 @@ bool system_test(void) {
 // Change the state-machine state 
 void change_state(int new_state) {
     state = new_state;
-}
-
-// Return the state-machine state 
-int get_state() {
-    return state;
+    set_sm_state(state);
 }
 
 // Return the desired attitude for the drone

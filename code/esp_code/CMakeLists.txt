@@ -9,10 +9,14 @@ set(PLANE_COMPONENT_DIRS
         ./components/drivers/imu
         ./components/drivers/height
         ./components/drivers/motors
-        ./components/configurations/parameters
         ./components/ros_coordinator
         ./components/flight_control
         ./components/micro_ros_espidf_component
+        ./components/global_data/state
+        ./components/global_data/parameters
+)
+
+set(GLOBAL_DATA_DIRS
 )
 
 set(EXTRA_COMPONENT_DIRS "${EXTRA_COMPONENT_DIRS} ${PLANE_COMPONENT_DIRS}")

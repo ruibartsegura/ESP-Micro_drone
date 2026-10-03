@@ -18,6 +18,7 @@
 #include "ros_coordinator.h"
 
 
+#include "state.h"
 #include "height.h"
 
 static const char *TAG = "h_task";
@@ -84,19 +85,15 @@ esp_err_t get_height_data(geometry_msgs__msg__PoseStamped *data) {
 }
 
 static void h_sample() {
-    geometry_msgs__msg__PoseStamped sample;
-
-    #ifdef CONFIG_SIMULATION_ON
-        sample = get_height_sim();
-    #else
+    #ifndef CONFIG_SIMULATION_ON
         float temp_c;
         int32_t pressure_pa;
 
         if (bmp180_read_temperature(&bmp, &temp_c) == ESP_OK &&
             bmp180_read_pressure(&bmp, &pressure_pa) == ESP_OK) {
 
-            sample.pose.position.z = bmp180_pressure_to_altitude(pressure_pa, 101325.0f);
-            sample.header.stamp.nanosec = esp_timer_get_time() * 1000; // Micro -> Nanosec
+            set_h(bmp180_pressure_to_altitude(pressure_pa, 101325.0f));
+            set_time_height(sample.header.stamp.nanosec = esp_timer_get_time() * 1000); // Micro -> Nanosec
 
             ESP_LOGI(TAG, "Temp: %.1f C | Presion: %ld Pa | Altitud aprox: %.2f m",
                         temp_c, (long)pressure_pa, sample.pose.position.z);
@@ -105,10 +102,6 @@ static void h_sample() {
             return; // se conserva el ultimo dato valido, no se pisa con basura
         }
     #endif
-
-    portENTER_CRITICAL(&data_mux);
-    latest_data = sample;
-    portEXIT_CRITICAL(&data_mux);
 }
 
 

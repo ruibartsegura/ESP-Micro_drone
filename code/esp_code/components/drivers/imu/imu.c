@@ -12,6 +12,8 @@
 #include "esp_timer.h"
 #include "esp_log.h"
 
+#include "state.h"
+
 #define DEG_TO_RAD (float)(M_PI / 180.0)
 
 // Frecuencia de muestreo/filtrado interna, independiente de a que
@@ -29,29 +31,7 @@ static bool is_init = false;
 
 #endif
 
-// Ultimo resultado calculado, compartido entre imu_task() (escritor)
-// y cualquier tarea que llame a get_imu_data() (lectores). Protegido
-// por una seccion critica corta (solo copia de struct, sin I/O).
-static IMU latest_data;
-
 static portMUX_TYPE data_mux = portMUX_INITIALIZER_UNLOCKED;
-
-esp_err_t get_imu_data(IMU *data) {
-    if (data == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    if (!is_init) {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    // Fill the data
-    portENTER_CRITICAL(&data_mux);
-    *data = latest_data;
-    portEXIT_CRITICAL(&data_mux);
-
-    return ESP_OK;
-}
 
 
 esp_err_t imu_check_stable_for_arming(imu_arm_state_t *state) {
@@ -103,17 +83,7 @@ static void imu_sample_and_filter(void)
     float vel_ang_x, vel_ang_y, vel_ang_z;
     int64_t t_stamp;
 
-    #ifdef CONFIG_SIMULATION_ON
-        sensor_msgs__msg__Imu imu_sim = get_imu_sim();
-
-        accel_lin_x = imu_sim.linear_acceleration.x;
-        accel_lin_y = imu_sim.linear_acceleration.y;
-        accel_lin_z = imu_sim.linear_acceleration.z;
-        vel_ang_x = imu_sim.angular_velocity.x;
-        vel_ang_y = imu_sim.angular_velocity.y;
-        vel_ang_z = imu_sim.angular_velocity.z;
-        t_stamp = imu_sim.header.stamp.nanosec;
-    #else
+    #ifndef CONFIG_SIMULATION_ON
         // Get the data from the sensor
         ret = mpu6050_read_raw_data(I2C_MASTER_NUM,
                                     &accel_x, &accel_y, &accel_z,
@@ -127,23 +97,12 @@ static void imu_sample_and_filter(void)
                             &accel_lin_x, &accel_lin_y, &accel_lin_z);
         mpu6050_convert_gyro(gyro_x, gyro_y, gyro_z, gyro_bias,
                             &vel_ang_x, &vel_ang_y, &vel_ang_z);
+
+        // Load data to the global data
+        set_vel_ang(vel_ang_x, vel_ang_y, vel_ang_z);
+        set_acc_lin(accel_lin_x, accel_lin_y, accel_lin_z);
+        set_time_imu(t_stamp);
     #endif
-
-    // Fill the struct with the data
-    IMU sample = {
-        .Acc_lin_X = accel_lin_x,
-        .Acc_lin_Y = accel_lin_y,
-        .Acc_lin_Z = accel_lin_z,
-        .Vel_ang_X = vel_ang_x,
-        .Vel_ang_Y = vel_ang_y,
-        .Vel_ang_Z = vel_ang_z,
-        .Time_stamp = t_stamp,
-    };
-
-
-    portENTER_CRITICAL(&data_mux);
-    latest_data = sample;
-    portEXIT_CRITICAL(&data_mux);
 }
 
 static void imu_task(void *arg) {

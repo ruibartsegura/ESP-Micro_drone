@@ -37,10 +37,12 @@
 // Services types
 #include <my_msgs/srv/takeoff.h>
 
+// My includes
 #include "led.h"
 #include "imu.h"
 #include "system.h"
 #include "parameters.h"
+#include "state.h"
 #include "sdkconfig.h"
 
 #include <pthread.h>
@@ -58,18 +60,17 @@
 // ============================================================
 #ifdef CONFIG_SIMULATION_ON
     #define N_HANDLERS 7 // 5 Default + 2 for new subs(IMU, Height)
-
 #else
     #define N_HANDLERS 5
-
 #endif
 
 
 // ============================================================
 //                       Parameters
 // ============================================================
-static const float MAX_ALT = 3.0f;
+static const float MAX_ALT = 3.0f; // TODO PONER PARAM
 static const float MIN_ALT = 0.5f;
+
 #define DEG_TO_RAD  0.017453293f  // pi / 180
 #define GRAVITY_MS2 9.80665f
 
@@ -207,14 +208,15 @@ void takeoff_callback(const void * req_msg, void * res_msg) {
     my_msgs__srv__Takeoff_Response * takeoff_res =
         (my_msgs__srv__Takeoff_Response *)res_msg;
 
-    int state = get_state();
+    sm_states_t state;
+    get_sm_state(&state);
 
     // Check drone state, to just accept the take off when the drone is armed and waiting to take off
-    if (state == 8) { // Error state
+    if (state == ERROR) { // Error state
         takeoff_res->accepted = false;
         rosidl_runtime_c__String__assign(&takeoff_res->reason, "Status error");
         return;
-    } else if (state != 2) { // Not Arming
+    } else if (state != ARMING) { // Not Arming
         takeoff_res->accepted = false;
         rosidl_runtime_c__String__assign(&takeoff_res->reason, "Not armed");
         return;
@@ -242,23 +244,28 @@ void takeoff_callback(const void * req_msg, void * res_msg) {
 //                         IMU publisher
 // ============================================================
 // Fill IMU msg
-void fill_imu_msg(const IMU * msg, sensor_msgs__msg__Imu * out) {
+void fill_imu_msg(sensor_msgs__msg__Imu * out) {
     int64_t now_ms = esp_timer_get_time();
 
     out->header.stamp.sec = now_ms / 1000;
     out->header.stamp.nanosec = (now_ms % 1000) * 1000000;
 
+    vec3_t vel_ang, acc_lin;
+    get_acc_lin(&acc_lin);
+    get_acc_lin(&vel_ang);
+
+
     // FIX: estaban intercambiados (aceleración en angular_velocity y
     // giro en linear_acceleration) y sin convertir unidades.
     // sensor_msgs/Imu espera angular_velocity en rad/s y
     // linear_acceleration en m/s².
-    out->angular_velocity.x = msg->Vel_ang_X * DEG_TO_RAD;
-    out->angular_velocity.y = msg->Vel_ang_Y * DEG_TO_RAD;
-    out->angular_velocity.z = msg->Vel_ang_Z * DEG_TO_RAD;
+    out->angular_velocity.x = vel_ang.x * DEG_TO_RAD;
+    out->angular_velocity.y = vel_ang.y * DEG_TO_RAD;
+    out->angular_velocity.z = vel_ang.z * DEG_TO_RAD;
 
-    out->linear_acceleration.x = msg->Acc_lin_X * GRAVITY_MS2;
-    out->linear_acceleration.y = msg->Acc_lin_Y * GRAVITY_MS2;
-    out->linear_acceleration.z = msg->Acc_lin_Z * GRAVITY_MS2;
+    out->linear_acceleration.x = acc_lin.x * GRAVITY_MS2;
+    out->linear_acceleration.y = acc_lin.y * GRAVITY_MS2;
+    out->linear_acceleration.z = acc_lin.z * GRAVITY_MS2;
 }
 
 
@@ -267,35 +274,37 @@ void fill_imu_msg(const IMU * msg, sensor_msgs__msg__Imu * out) {
 // ============================================================
 #ifdef CONFIG_SIMULATION_ON
     // Imu Callback
-    sensor_msgs__msg__Imu get_imu_sim(){
-        pthread_mutex_lock(&lock);
-        sensor_msgs__msg__Imu msg = imu_sub_msg;
-        pthread_mutex_unlock(&lock);
-
-        return msg;
-    }
 
     void imu_callback(const void * msgin) {
         const sensor_msgs__msg__Imu * new_msg = (const sensor_msgs__msg__Imu *)msgin;
         pthread_mutex_lock(&lock);
         imu_sub_msg = *new_msg;
         pthread_mutex_unlock(&lock);
+
+        set_vel_ang(
+            imu_sub_msg.angular_velocity.x,
+            imu_sub_msg.angular_velocity.y,
+            imu_sub_msg.angular_velocity.z
+        );
+
+        set_acc_lin(
+            imu_sub_msg.linear_acceleration.x,
+            imu_sub_msg.linear_acceleration.y,
+            imu_sub_msg.linear_acceleration.z
+        );
+
+        set_time_imu(imu_sub_msg.header.stamp.nanosec);
     }
 
     // Height Callback
-    geometry_msgs__msg__PoseStamped get_height_sim(){
-        pthread_mutex_lock(&lock);
-        geometry_msgs__msg__PoseStamped msg = h_sub_msg;
-        pthread_mutex_unlock(&lock);
-
-        return msg;
-    }
-
     void height_callback(const void * msgin) {
         const geometry_msgs__msg__PoseStamped * new_msg = (const geometry_msgs__msg__PoseStamped *)msgin;
         pthread_mutex_lock(&lock);
         h_sub_msg = *new_msg;
         pthread_mutex_unlock(&lock);
+
+        set_h(h_sub_msg.pose.position.z);
+        set_time_height(h_sub_msg.header.stamp.nanosec);
     }
 
     void pub_motor_speed(uint8_t motor_id, uint8_t motor_spd) {
@@ -314,18 +323,15 @@ void fill_imu_msg(const IMU * msg, sensor_msgs__msg__Imu * out) {
 void timer_callback(rcl_timer_t * timer, int64_t last_call_time) {
     RCLC_UNUSED(last_call_time);
     if (timer != NULL) {
-        if (get_state() == 1 && params_2_update) {
+        sm_states_t state;
+        get_sm_state(&state);
+        if (state == CHECKING && params_2_update) {
             apply_pending_params();
         }
 
-        IMU imu_data;
-        esp_err_t err = get_imu_data(&imu_data);
-        if (err == ESP_OK) {
-            fill_imu_msg(&imu_data, &imu_msg);
-            RCSOFTCHECK(rcl_publish(&imu_pub, &imu_msg, NULL));
-        } else {
-            led_on(LED_RED);
-        }
+        fill_imu_msg(&imu_msg);
+        RCSOFTCHECK(rcl_publish(&imu_pub, &imu_msg, NULL));
+
     }
 }
 

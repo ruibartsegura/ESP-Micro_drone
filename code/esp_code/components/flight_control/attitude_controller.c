@@ -14,6 +14,7 @@
 #include "system.h"
 #include "ros_coordinator.h"
 #include "motors.h"
+#include "state.h"
 
 #include "esp_log.h"
 
@@ -70,33 +71,54 @@ float complementary_filter(float a, float b, float alpha) {
 // ============================================================
 //              Getting height & filtering it
 // ============================================================
-float get_h(float h_d, IMU *imu_d) {
-  float dt = (imu_d->Time_stamp - last_rpy.t_stamp) / 1000000.0f; // Time difference
+float get_h() {
+  // Get the time of the sample
+  int64_t t;
+  get_time_imu(&t);
 
-  float vel_z = imu_d->Acc_lin_Z * dt + last_vel_Z;
+  float dt = (t - last_rpy.t_stamp) / 1000000.0f; // Time difference
+
+  vec3_t acc_lin = {0};
+  get_acc_lin(&acc_lin);
+
+  float vel_z = acc_lin.z * dt + last_vel_Z;
   float h = vel_z * dt + last_h;
+
+  vec3_t pos = {0};
+  get_position(&pos);
+
+  last_h = h;
+  last_vel_Z = vel_z;
   
   // Calculate the power for altitude | a = calculated h, b = sensed h
-  return complementary_filter(h, h_d, ALPHA);
+  return complementary_filter(h, pos.z, ALPHA);
 }
 
 // ============================================================
 //                  Getting Roll Pitch Yaw
 // ============================================================
-void get_roll_pitch(float *roll, float *pitch, IMU *imu_d) {
-  float dt = (imu_d->Time_stamp - last_rpy.t_stamp) / 1000000000.0f; // Time difference (ns->s)
+void get_roll_pitch(float *roll, float *pitch) {
+  // Get the time of the sample
+  int64_t t;
+  get_time_imu(&t);
+
+  vec3_t acc_lin = {0};
+  vec3_t vel_ang = {0};
+
+  get_acc_lin(&acc_lin);
+  get_vel_ang(&vel_ang);
+
+  float dt = (t - last_rpy.t_stamp) / 1000000000.0f; // Time difference (ns->s)
   if (dt <= 0.0f || dt > 0.1f) {
     dt = 0.0f;
   }
 
-  float roll_acc  = atan2f(imu_d->Acc_lin_Y, imu_d->Acc_lin_Z) * 180.0f / M_PI;
-  float pitch_acc =
-    atan2f(-imu_d->Acc_lin_X, sqrtf(imu_d->Acc_lin_Y*imu_d->Acc_lin_Y + imu_d->Acc_lin_Z*imu_d->Acc_lin_Z)) *
-    180.0f / M_PI;
+  float roll_acc  = atan2f(acc_lin.y, acc_lin.z) * 180.0f / M_PI;
+  float pitch_acc = atan2f(-acc_lin.x, sqrtf(acc_lin.y*acc_lin.y + acc_lin.z*acc_lin.z)) * 180.0f / M_PI;
 
 
-  float roll_angle = (last_rpy.roll + imu_d->Vel_ang_X * dt);
-  float pitch_angle = (last_rpy.pitch  + imu_d->Vel_ang_Y * dt);
+  float roll_angle = (last_rpy.roll + vel_ang.x * dt);
+  float pitch_angle = (last_rpy.pitch  + vel_ang.y * dt);
 
   // a = angle, b = angle acceleration
   *roll = complementary_filter(roll_angle, roll_acc, ALPHA);
@@ -104,7 +126,7 @@ void get_roll_pitch(float *roll, float *pitch, IMU *imu_d) {
 
   last_rpy.roll = *roll;
   last_rpy.pitch = *pitch;
-  last_rpy.t_stamp = imu_d->Time_stamp;
+  last_rpy.t_stamp = t;
   return;
 }
 
@@ -158,10 +180,6 @@ void cmd_vel_2_RP(float *targ_roll, float *targ_pitch, geometry_msgs__msg__Twist
 //                        Attitude Main
 // ============================================================
 void control_attitude() {
-  // Sensors data
-  IMU imu_d;
-  geometry_msgs__msg__PoseStamped h_d;
-
   // External loop
   float roll, pitch;
   float targ_roll, targ_pitch;
@@ -173,7 +191,7 @@ void control_attitude() {
   float err_roll_rate, err_pitch_rate, err_yaw_rate;
 
   // Height
-  float pow_h, err_h;
+  float pow_h;
 
   // Power for the motors
   float pow_roll, pow_pitch, pow_yaw;
@@ -183,17 +201,9 @@ void control_attitude() {
   // Get the desired attitude of the drone
   ATTITUDE_TARGET attitude_target = get_attitude();
 
-  // Get sensors data
-  esp_err_t err_imu = get_imu_data(&imu_d);
-  esp_err_t err_height = get_height_data(&h_d);
-
-  if (err_imu != ESP_OK || err_height != ESP_OK) {
-    return;
-  }
-
   // EXTERNAL LOOP
   // Get Roll & Pitch
-  get_roll_pitch(&roll, &pitch, &imu_d);
+  get_roll_pitch(&roll, &pitch);
 
   // Get target roll & pitch
   cmd_vel_2_RP(&targ_roll, &targ_pitch, attitude_target.cmd_vel);
@@ -211,9 +221,12 @@ void control_attitude() {
   targ_yaw_rate = attitude_target.cmd_vel.angular.z * 180.0f/M_PI;
 
   // Get measured roll, pitch, yaw rate
-  roll_rate = imu_d.Vel_ang_X;
-  pitch_rate = imu_d.Vel_ang_Y; 
-  yaw_rate = imu_d.Vel_ang_Z;
+  vec3_t vel_ang = {0};
+  get_vel_ang(&vel_ang);
+
+  roll_rate = vel_ang.x;
+  pitch_rate = vel_ang.y; 
+  yaw_rate = vel_ang.z;
 
   // Get diff between measured and desired
   err_roll_rate = targ_roll_rate - roll_rate;
@@ -227,7 +240,7 @@ void control_attitude() {
 
 
   // ALTITUDE
-  float h = get_h(h_d.pose.position.z, &imu_d); // Height calculated
+  float h = get_h(); // Height calculated
   pow_h = throttle_base + h;
   
   err_h = attitude_target.h - h; // Distance between target and actual h.
