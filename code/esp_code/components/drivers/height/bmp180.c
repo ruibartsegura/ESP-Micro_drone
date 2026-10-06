@@ -93,7 +93,7 @@ esp_err_t bmp180_init(bmp180_t *dev, i2c_port_t i2c_port, bmp180_mode_t mode)
     dev->MC  = be16(&cal[18]);
     dev->MD  = be16(&cal[20]);
 
-    ESP_LOGI(TAG, "BMP180 inicializado correctamente (chip id 0x%02X)", chip_id);
+    // // ESP_LOGI(TAG, "BMP180 inicializado correctamente (chip id 0x%02X)", chip_id);
     return ESP_OK;
 }
 

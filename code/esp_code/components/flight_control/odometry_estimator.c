@@ -35,8 +35,8 @@ void odom_task(void *arg) {
         if (++log_counter >= 500) {
             log_counter = 0;
             UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
-            ESP_LOGI(TAG, "stack libre (min historico): %u bytes",
-                     (unsigned)(free_words * sizeof(StackType_t)));
+            // ESP_LOGI(TAG, "stack libre (min historico): %u bytes",
+                    //  (unsigned)(free_words * sizeof(StackType_t)));
         }
 
         vTaskDelay(pdMS_TO_TICKS(ODOM_TASK_PERIOD_MS));

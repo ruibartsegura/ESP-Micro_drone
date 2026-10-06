@@ -19,6 +19,7 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "esp_wifi.h"
 
 #include <uros_network_interfaces.h>
 #include <rcl/rcl.h>
@@ -59,6 +60,8 @@
 #define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){ \
         printf("Failed status on line %d: %d. Continuing.\n",__LINE__,(int)temp_rc);}}
 
+static const char *TAG = "MICRO_ROS";
+
 // ============================================================
 //                       Parameters
 // ============================================================
@@ -91,20 +94,23 @@ static const float MIN_ALT = 0.5f;
 rcl_publisher_t imu_pub;
 sensor_msgs__msg__Imu imu_msg;
 
+
 // ============================================================
 //                         Subscribers
 // ============================================================
 rcl_subscription_t params_sub;
-std_msgs__msg__Int32 recv_msg;
+my_msgs__msg__Params recv_msg;
 
 rcl_subscription_t cmd_vel_sub;
 geometry_msgs__msg__TwistStamped cmd_vel_msg;
+
 
 // ============================================================
 //                           Params
 // ============================================================
 my_msgs__msg__Params param_msg;
 static bool params_2_update = false;
+
 
 // ============================================================
 //                          Services
@@ -114,7 +120,7 @@ my_msgs__srv__Takeoff_Request  takeoff_req;
 my_msgs__srv__Takeoff_Response takeoff_res;
 
 // ============================================================
-//                          Mutex
+//                           Mutex
 // ============================================================
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -123,6 +129,8 @@ pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 // ============================================================
 bool take_off_ready = false;
 float altitude = MIN_ALT;
+
+
 // ============================================================
 //                  Simulation pubs & subs
 // ============================================================
@@ -186,7 +194,6 @@ void param_callback(const void * msgin)
 }
 
 
-
 // ============================================================
 //                          CMD_VEL
 // ============================================================
@@ -201,6 +208,8 @@ void cmd_vel_callback(const void * msgin)
     cmd_vel_msg = *new_msg;
     pthread_mutex_unlock(&lock);
 }
+
+
 // ============================================================
 //                           Take off
 // ============================================================
@@ -231,12 +240,16 @@ void takeoff_callback(const void * req_msg, void * res_msg) {
     sm_states_t state;
     get_sm_state(&state);
 
+    ESP_LOGI(TAG, "TAKEOFF: received alt=%.2f state=%d", takeoff_req->altitude, (int)state);
+
     // Check drone state, to just accept the take off when the drone is armed and waiting to take off
     if (state == ERROR) { // Error state
+        ESP_LOGW(TAG, "TAKEOFF: rejected - ERROR state");
         takeoff_res->accepted = false;
         rosidl_runtime_c__String__assign(&takeoff_res->reason, "Status error");
         return;
     } else if (state != ARMING) { // Not Arming
+        ESP_LOGW(TAG, "TAKEOFF: rejected - state=%d not ARMING(%d)", (int)state, (int)ARMING);
         takeoff_res->accepted = false;
         rosidl_runtime_c__String__assign(&takeoff_res->reason, "Not armed");
         return;
@@ -244,6 +257,8 @@ void takeoff_callback(const void * req_msg, void * res_msg) {
 
     // Check requested altitude
     if (takeoff_req->altitude < MIN_ALT || takeoff_req->altitude > MAX_ALT) {
+        ESP_LOGW(TAG, "TAKEOFF: rejected - alt=%.2f out of [%.2f, %.2f]",
+                 takeoff_req->altitude, MIN_ALT, MAX_ALT);
         takeoff_res->accepted = false;
         rosidl_runtime_c__String__assign(&takeoff_res->reason, "Invalid altitude");
         return;
@@ -255,14 +270,16 @@ void takeoff_callback(const void * req_msg, void * res_msg) {
     altitude = takeoff_req->altitude;
     pthread_mutex_unlock(&lock);
 
-    // Service answer
+    ESP_LOGI(TAG, "TAKEOFF: accepted alt=%.2f", takeoff_req->altitude);
     takeoff_res->accepted = true;
     rosidl_runtime_c__String__assign(&takeoff_res->reason, "OK");
 }
 
+
 // ============================================================
 //                         IMU publisher
 // ============================================================
+
 // Fill IMU msg
 void fill_imu_msg(sensor_msgs__msg__Imu * out) {
     int64_t now_ms = esp_timer_get_time();
@@ -272,7 +289,7 @@ void fill_imu_msg(sensor_msgs__msg__Imu * out) {
 
     vec3_t vel_ang, acc_lin;
     get_acc_lin(&acc_lin);
-    get_acc_lin(&vel_ang);
+    get_vel_ang(&vel_ang);
 
 
     // FIX: estaban intercambiados (aceleración en angular_velocity y
@@ -283,9 +300,9 @@ void fill_imu_msg(sensor_msgs__msg__Imu * out) {
     out->angular_velocity.y = vel_ang.y * DEG_TO_RAD;
     out->angular_velocity.z = vel_ang.z * DEG_TO_RAD;
 
-    out->linear_acceleration.x = acc_lin.x * GRAVITY_MS2;
-    out->linear_acceleration.y = acc_lin.y * GRAVITY_MS2;
-    out->linear_acceleration.z = acc_lin.z * GRAVITY_MS2;
+    out->angular_velocity.x = vel_ang.x * GRAVITY_MS2;
+    out->angular_velocity.y = vel_ang.y * GRAVITY_MS2;
+    out->angular_velocity.z = vel_ang.z * GRAVITY_MS2;
 }
 
 
@@ -293,10 +310,12 @@ void fill_imu_msg(sensor_msgs__msg__Imu * out) {
 //                    Simulation Subs/Pubs
 // ============================================================
 #ifdef CONFIG_SIMULATION_ON
-    // Imu Callback
+    static volatile uint32_t imu_recv_cnt = 0;
 
+    // Imu Callback
     void imu_callback(const void * msgin) {
         const sensor_msgs__msg__Imu * new_msg = (const sensor_msgs__msg__Imu *)msgin;
+        imu_recv_cnt++;
         pthread_mutex_lock(&lock);
         imu_sub_msg = *new_msg;
         pthread_mutex_unlock(&lock);
@@ -345,6 +364,7 @@ void fill_imu_msg(sensor_msgs__msg__Imu * out) {
     // Update value for the motors
     void pub_motor_speed(const double power[NUM_MOTORS]) {
         if (motors_q == NULL) return;
+
         motors_cmd_t cmd;
         memcpy(cmd.v, power, sizeof(cmd.v));
         xQueueOverwrite(motors_q, &cmd);
@@ -354,11 +374,18 @@ void fill_imu_msg(sensor_msgs__msg__Imu * out) {
     static void motors_timer_callback(rcl_timer_t *timer, int64_t last_call_time) {
         RCLC_UNUSED(last_call_time);
         motors_cmd_t cmd;
+
+        // ESP_LOGI(TAG, "VEL LLEGA");
         if (timer == NULL || !motors_pub_ready) return;
+        
         if (xQueueReceive(motors_q, &cmd, 0) != pdTRUE) return;  // nada nuevo
+        // ESP_LOGI(TAG, "VEL PASA");
 
         int64_t now_us = esp_timer_get_time();
-        for (int i = 0; i < NUM_MOTORS; i++) motors_msg.velocity.data[i] = cmd.v[i];
+        for (int i = 0; i < NUM_MOTORS; i++) {
+            motors_msg.velocity.data[i] = cmd.v[i];
+            
+        }
         motors_msg.header.stamp.sec     = (int32_t)(now_us / 1000000);
         motors_msg.header.stamp.nanosec = (uint32_t)((now_us % 1000000) * 1000);
         RCSOFTCHECK(rcl_publish(&motors_pub, &motors_msg, NULL));
@@ -419,7 +446,7 @@ void micro_ros_task(void * arg) {
     rosidl_runtime_c__String__assign(&imu_msg.header.frame_id, "imu_link");
     imu_msg.orientation_covariance[0] = -1.0;
 
-    RCCHECK(rclc_publisher_init_default(
+    RCCHECK(rclc_publisher_init_best_effort(
         &imu_pub,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
@@ -439,10 +466,11 @@ void micro_ros_task(void * arg) {
         "drone/params", &params_qos));
 
     // Init cmd vel sub
-    RCCHECK(rclc_subscription_init_default(
+    RCCHECK(rclc_subscription_init_best_effort(
         &cmd_vel_sub, &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, TwistStamped),
-        "drone/cmd_vel"));
+        "drone/cmd_vel"
+    ));
 
     // Init take off service
     RCCHECK(rclc_service_init_default(
@@ -453,22 +481,31 @@ void micro_ros_task(void * arg) {
 
     // Initialitation for simulation pub/sub
     #ifdef CONFIG_SIMULATION_ON
-        // Init imu sub
-        RCCHECK(rclc_subscription_init_best_effort(&imu_sub, &node,
-            ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu), "imu/data"));
+        // Init imu sub - depth=1: only keep latest, avoid executor callback bursts
+        {
+            rmw_qos_profile_t sim_qos = rmw_qos_profile_sensor_data;
+            sim_qos.depth = 1;
+            RCCHECK(rclc_subscription_init(&imu_sub, &node,
+                ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu), "imu/data", &sim_qos));
+        }
 
-        // Init barometer sub
-        RCCHECK(rclc_subscription_init_best_effort(&height_sub, &node,
-            ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, FluidPressure), "barometer/data"));
+        // Init barometer sub - depth=1: same reason
+        {
+            rmw_qos_profile_t sim_qos = rmw_qos_profile_sensor_data;
+            sim_qos.depth = 1;
+            RCCHECK(rclc_subscription_init(&height_sub, &node,
+                ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, FluidPressure), "barometer/data", &sim_qos));
+        }
         
-        // Init motors pub
-        rmw_qos_profile_t motors_qos = rmw_qos_profile_default;   // RELIABLE + VOLATILE
-        motors_qos.history = RMW_QOS_POLICY_HISTORY_KEEP_LAST;
-        motors_qos.depth   = 2;
-
-        RCCHECK(rclc_publisher_init(&motors_pub, &node,
-            ROSIDL_GET_MSG_TYPE_SUPPORT(actuator_msgs, msg, Actuators),
-            "/drone/command/motor_speed", &motors_qos));
+        // Init motors pub - RELIABLE: Gazebo bridge subscriber requires RELIABLE
+        {
+            rmw_qos_profile_t motors_qos = rmw_qos_profile_default;
+            motors_qos.history = RMW_QOS_POLICY_HISTORY_KEEP_LAST;
+            motors_qos.depth   = 2;
+            RCCHECK(rclc_publisher_init(&motors_pub, &node,
+                ROSIDL_GET_MSG_TYPE_SUPPORT(actuator_msgs, msg, Actuators),
+                "/drone/command/motor_speed", &motors_qos));
+        }
         motors_pub_ready = true;
     #endif
 
@@ -482,24 +519,26 @@ void micro_ros_task(void * arg) {
         timer_callback,
         true));
 
-    // Add everything to the executor
+    // Add everything to the executor, the order matter
     rclc_executor_t executor;
     RCCHECK(rclc_executor_init(&executor, &support.context, N_HANDLERS, &allocator));
+    
     RCCHECK(rclc_executor_add_timer(&executor, &timer));
+
+    RCCHECK(rclc_executor_add_service(&executor, &takeoff_srv, &takeoff_req,
+        &takeoff_res, takeoff_callback));
+
     RCCHECK(rclc_executor_add_subscription(&executor, &params_sub, &recv_msg,
         &param_callback, ON_NEW_DATA));
 
     RCCHECK(rclc_executor_add_subscription(&executor, &cmd_vel_sub, &cmd_vel_msg,
         &cmd_vel_callback, ON_NEW_DATA));
 
-    RCCHECK(rclc_executor_add_service(&executor, &takeoff_srv, &takeoff_req,
-        &takeoff_res, takeoff_callback));
-
     #ifdef CONFIG_SIMULATION_ON
         // Motors timer
         rcl_timer_t motors_timer;
         RCCHECK(rclc_timer_init_default2(&motors_timer, &support,
-                RCL_MS_TO_NS(20), motors_timer_callback, true));   // 50 Hz
+                RCL_MS_TO_NS(30), motors_timer_callback, true));   // ~33 Hz
         RCCHECK(rclc_executor_add_timer(&executor, &motors_timer));
 
         // Simulation subs
@@ -511,17 +550,30 @@ void micro_ros_task(void * arg) {
     #endif
 
 
+    ESP_LOGI(TAG, "Executor ready. Service valid=%d",
+             (int)rcl_service_is_valid(&takeoff_srv));
+
     int64_t last_log_us = esp_timer_get_time();
 
     while (1) {
-        rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
+        rcl_ret_t rc = rclc_executor_spin_some(&executor, RCL_MS_TO_NS(250));
+
+        if (rc != RCL_RET_OK && rc != RCL_RET_TIMEOUT) {
+            ESP_LOGW(TAG, "spin_some error: %d", (int)rc);
+        }
 
         int64_t now_us = esp_timer_get_time();
         if (now_us - last_log_us >= 5000000) {
             last_log_us = now_us;
             UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
-            ESP_LOGI("uros_task", "stack libre (min historico): %u bytes",
-                     (unsigned)(free_words * sizeof(StackType_t)));
+            #ifdef CONFIG_SIMULATION_ON
+                ESP_LOGI(TAG, "alive, imu_recv=%u stack_min=%u bytes",
+                         (unsigned)imu_recv_cnt,
+                         (unsigned)(free_words * sizeof(StackType_t)));
+            #else
+                ESP_LOGI(TAG, "alive, stack_min=%u bytes",
+                         (unsigned)(free_words * sizeof(StackType_t)));
+            #endif
         }
     }
 }
@@ -538,7 +590,10 @@ void ros_init(void) {
 #if defined(CONFIG_MICRO_ROS_ESP_NETIF_WLAN) || defined(CONFIG_MICRO_ROS_ESP_NETIF_ENET)
     ESP_ERROR_CHECK(uros_network_interface_initialize());
 #endif
-    
+
+#if defined(CONFIG_MICRO_ROS_ESP_NETIF_WLAN)
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));   // sin ahorro de energía
+#endif
 
     xTaskCreate(micro_ros_task,
             "uros_task",

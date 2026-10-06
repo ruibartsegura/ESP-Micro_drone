@@ -61,7 +61,7 @@ bool led_test(void) {
         return false;
     }
 
-    ESP_LOGI(TAG, "Empieza test");
+    // ESP_LOGI(TAG, "Empieza test");
     
     for (int x = 0; x < N_LEDS; x++) {
         gpio_set_level(led_pin[x], 1);
@@ -74,7 +74,7 @@ bool led_test(void) {
         vTaskDelay(pdMS_TO_TICKS(250));
     }
     
-    ESP_LOGI(TAG, "Termina test");
+    // ESP_LOGI(TAG, "Termina test");
     all_off();
     return true;
 }

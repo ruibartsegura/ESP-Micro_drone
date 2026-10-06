@@ -22,6 +22,7 @@ static const char *TAG = "MOTOR";
 static bool drone_armed = false;
 
 static bool is_init = false;
+static bool is_testing = false;
 
 // GPIO pin and LEDC channel are just used with real drone, no simulation
 #ifdef CONFIG_SIMULATION_ON
@@ -52,6 +53,7 @@ void disarm_motors() {
 }
 
 void set_motor_speed(double power[N_MOTORS]) {
+    if (is_testing) return;
     // When drone is disarmed, the motors doesn't work
     if (!drone_armed) {
         for (int x = 0; x < N_MOTORS; x++) {
@@ -131,23 +133,26 @@ bool motors_test(void) {
     if (!is_init) {
         return false;
     }
+    is_testing = true;
     
     ESP_LOGI(TAG, "Empieza test");
     double power[N_MOTORS];
     
     for (int x = 0; x < N_MOTORS; x++) {
-        for (int vel = TEST_VAL/2; vel <= TEST_VAL; vel = vel + 50) {
+        ESP_LOGI(TAG, "Motor %d", x);
+        for (int vel = 0; vel <= TEST_VAL/2; vel = vel + 50) {
             power[x] = vel;
-            set_motor_speed(power);
+            pub_motor_speed(power);
             vTaskDelay(pdMS_TO_TICKS(150));
         }
-    
-        for (int vel = TEST_VAL; vel >= 0; vel = vel - 100) {
+        ESP_LOGI(TAG, "MAX POWER");
+        for (int vel = TEST_VAL/2; vel >= 0; vel = vel - 100) {
             power[x] = vel;
-            set_motor_speed(power);
+            pub_motor_speed(power);
             vTaskDelay(pdMS_TO_TICKS(150));
         }
         power[x] = 0;
+        ESP_LOGI(TAG, "FINISH MOTOR X");
     }
     
     // Make sure the motors are stopped before finish the test
@@ -156,5 +161,6 @@ bool motors_test(void) {
 
     
     ESP_LOGI(TAG, "Termina test");
+    is_testing = false;
     return true;
 }

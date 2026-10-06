@@ -34,12 +34,15 @@
 #define m 16.5 // Drone mass
 #define MAX_ANGLE 0.52 // 30º in rad
 
-// PID
-#define KP 1 // Proportional
-#define KI 1 // Integrative
-#define KD 1 // Derivative
+// PID -> will be /100
+#define KP 85 // Proportional
+#define KI 100 // Integrative
+#define KD 100 // Derivative
 
 #define throttle_base 2387 // Min throttle to hover
+
+static const char *TAG = "ATTITUDE";
+
 
 // Allowed diference between target adn actual height in 
 float DIFF_H_ALLOWED = 0.01; // In meters
@@ -58,32 +61,6 @@ bool check_h_reached() {
 
 float complementary_filter(float a, float b, float alpha) {
   return (alpha * a + (1.0 - alpha) * b);
-}
-
-// ============================================================
-//              Getting height & filtering it
-// ============================================================
-float get_h() {
-  // Get the time of the sample
-  int64_t t;
-  get_time_imu(&t);
-
-  float dt = (t - last_rpy.t_stamp) / 1000000.0f; // Time difference
-
-  vec3_t acc_lin = {0};
-  get_acc_lin(&acc_lin);
-
-  float vel_z = acc_lin.z * dt + last_vel_Z;
-  float h = vel_z * dt + last_h;
-
-  vec3_t pos = {0};
-  get_position(&pos);
-
-  last_h = h;
-  last_vel_Z = vel_z;
-  
-  // Calculate the power for altitude | a = calculated h, b = sensed h
-  return complementary_filter(h, pos.z, ALPHA);
 }
 
 // ============================================================
@@ -187,8 +164,6 @@ void control_attitude() {
 
   // Power for the motors
   float pow_roll, pow_pitch, pow_yaw;
-  float motor1, motor2, motor3, motor4;
-
 
   // Get the desired attitude of the drone
   ATTITUDE_TARGET attitude_target = get_attitude();
@@ -232,10 +207,14 @@ void control_attitude() {
 
 
   // ALTITUDE
-  float h = get_h(); // Height calculated
-  pow_h = throttle_base + h;
+  vec3_t pos = {0};
+  get_position(&pos);
   
-  err_h = attitude_target.h - h; // Distance between target and actual h.
+  // ESP_LOGI(TAG, "Final h = %f", pos.z);
+  // ESP_LOGI(TAG, "Target h = %f", attitude_target.h);
+  
+  err_h = attitude_target.h - pos.z; // Distance between target and actual h.
+  pow_h = err_h * KP;
 
   double power[N_MOTORS];
 
@@ -260,8 +239,8 @@ static void attitude_task(void *arg) {
       if (++log_counter >= 250) {
           log_counter = 0;
           UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
-          ESP_LOGI("system_task", "stack libre (min historico): %u bytes",
-                    (unsigned)(free_words * sizeof(StackType_t)));
+          // ESP_LOGI("system_task", "stack libre (min historico): %u bytes",
+                    // (unsigned)(free_words * sizeof(StackType_t)));
       }
 
       vTaskDelay(pdMS_TO_TICKS(SYSTEM_TASK_PERIOD_MS));

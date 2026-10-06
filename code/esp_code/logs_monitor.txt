@@ -1,0 +1,81 @@
+Executing action: monitor
+Running idf_monitor in directory /home/rui/uni/TFG/ESP-Micro_drone/code/esp_code
+Executing "/home/rui/.espressif/python_env/idf5.2_py3.12_env/bin/python /home/rui/esp-idf/tools/idf_monitor.py -p /dev/ttyACM0 -b 115200 --toolchain-prefix xtensa-esp32s2-elf- --target esp32s2 --revision 0 /home/rui/uni/TFG/ESP-Micro_drone/code/esp_code/build/esp_code.elf -m '/home/rui/.espressif/python_env/idf5.2_py3.12_env/bin/python' '/home/rui/esp-idf/tools/idf.py'"...
+[0;32mI (245) main_task: Started on CPU0[0m[0;32mI (245) ma[0;32mI (745) gpio: GPIO[15]| InputEn: 0| OutputEn: 1| OpenDraiE (3835) wifi:NAN WiFi stop
+[0;32mI (3845) wifi:flush txq[0m
+[0;32mI (3845) wifi:stop sw txq[0m
+[0;32mI (3845) wifi:lmac stop hw txq[0m
+[0;32mI (30) boot: ESP-IDF v5.2-dirty 2nd stage bootloader[0m
+[0;32mI (31) boot: compile time Oct  6 2026 12:15:13[0m
+[0;32mI (31) boot: chip revision: v1.0[0m
+[0;32mI (31) boot.esp32s2: SPI Speed      : 80MHz[0m
+[0;32mI (31) boot.esp32s2: SPI Mode       : DIO[0m
+[0;32mI (31) boot.esp32s2: SPI Flash Size : 2MB[0m
+[0;32mI (31) boot: Enabling RNG early entropy source...[0m
+[0;32mI (31) boot: Partition Table:[0m
+[0;32mI (32) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (33) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m
+[0;32mI (34) boot:  1 phy_init         RF data          01 01 0000f000 00001000[0m
+[0;32mI (35) boot:  2 factory          factory app      00 00 00010000 00100000[0m
+[0;32mI (36) boot: End of partition table[0m
+[0;32mI (36) esp_image: segment 0: paddr=00010020 vaddr=3f000020 size=24550h (148816) map[0m
+[0;32mI (67) esp_image: segment 1: paddr=00034578 vaddr=3ffc85d0 size=06d44h ( 27972) load[0m
+[0;32mI (75) esp_image: segment 2: paddr=0003b2c4 vaddr=40024000 size=04d54h ( 19796) load[0m
+[0;32mI (80) esp_image: segment 3: paddr=00040020 vaddr=40080020 size=92814h (600084) map[0m
+[0;32mI (201) esp_image: segment 4: paddr=000d283c vaddr=40028d54 size=0f870h ( 63600) load[0m
+[0;32mI (229) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (230) boot: Disabling RNG early entropy source...[0m
+[0;32mI (252) main_task: Started on CPU0[0m
+[0;32mI (252) main_task: Calling app_main()[0m
+[0;32mI (252) main_task: Returned from app_main()[0m
+[0;32mI (752) gpio: GPIO[15]| InputEn: 0| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m
+[0;32mI (762) gpio: GPIO[7]| InputEn: 0| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m
+[0;32mI (772) gpio: GPIO[8]| InputEn: 0| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m
+[0;32mI (782) gpio: GPIO[9]| InputEn: 0| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m
+[0;32mI (2302) wifi:wifi driver task: 3ffe1074, prio:23, stack:6656, core=0[0m
+[0;32mI (2312) wifi:wifi firmware version: cc1dd81[0m
+[0;32mI (2312) wifi:wifi certification version: v7.0[0m
+[0;32mI (2312) wifi:config NVS flash: enabled[0m
+[0;32mI (2312) wifi:config nano formating: disabled[0m
+[0;32mI (2312) wifi:Init data frame dynamic rx buffer num: 32[0m
+[0;32mI (2312) wifi:Init static rx mgmt buffer num: 5[0m
+[0;32mI (2312) wifi:Init management short buffer num: 32[0m
+[0;32mI (2312) wifi:Init dynamic tx buffer num: 32[0m
+[0;32mI (2312) wifi:Init static rx buffer size: 1600[0m
+[0;32mI (2312) wifi:Init static rx buffer num: 10[0m
+[0;32mI (2322) wifi:Init dynamic rx buffer num: 32[0m
+[0;32mI (2322) wifi_init: rx ba win: 6[0m
+[0;32mI (2322) wifi_init: tcpip mbox: 32[0m
+[0;32mI (2322) wifi_init: udp mbox: 6[0m
+[0;32mI (2322) wifi_init: tcp mbox: 6[0m
+[0;32mI (2322) wifi_init: tcp tx win: 5760[0m
+[0;32mI (2322) wifi_init: tcp rx win: 5760[0m
+[0;32mI (2322) wifi_init: tcp mss: 1440[0m
+[0;32mI (2322) wifi_init: WiFi IRAM OP enabled[0m
+[0;32mI (2322) wifi_init: WiFi RX IRAM OP enabled[0m
+[0;32mI (2322) phy_init: phy_version 2401,2a6dc26,Sep 26 2023,11:22:15[0m
+[0;32mI (2372) wifi:mode : sta (80:65:99:e2:96:ea)[0m
+[0;32mI (2372) wifi:enable tsf[0m
+[0;32mI (2382) wifi:new:<10,0>, old:<1,0>, ap:<255,255>, sta:<10,0>, prof:1[0m
+[0;32mI (2392) wifi:state: init -> auth (b0)[0m
+[0;32mI (2392) wifi:state: auth -> assoc (0)[0m
+[0;32mI (2422) wifi:state: assoc -> run (10)[0m
+[0;32mI (2532) wifi:connected with Rui, aid = 12, channel 10, BW20, bssid = ba:ab:b5:86:a9:16[0m
+[0;32mI (2542) wifi:security: WPA2-PSK, phy: bgn, rssi: -36[0m
+[0;32mI (2542) wifi:pm start, type: 1[0m
+
+[0;32mI (2542) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us[0m
+[0;32mI (2592) wifi:<ba-add>idx:0 (ifx:0, ba:ab:b5:86:a9:16), tid:0, ssn:0, winSize:64[0m
+[0;32mI (2622) wifi:dp: 2, bi: 102400, li: 4, scale listen interval from 307200 us to 409600 us[0m
+[0;32mI (2632) wifi:AP's beacon interval = 102400 us, DTIM period = 2[0m
+[0;32mI (3552) esp_netif_handlers: sta ip: 10.167.216.224, mask: 255.255.255.0, gw: 10.167.216.206[0m
+[0;32mI (3562) wifi:Set ps type: 0, coexist: 0[0m
+
+[0;32mI (3752) wifi:<ba-add>idx:1 (ifx:0, ba:ab:b5:86:a9:16), tid:6, ssn:2, winSize:64[0m
+[0;32mI (4272) MICRO_ROS: Executor ready. Service valid=1[0m
+[0;32mI (7582) SYSTEM: Fin test result 1[0m
+[0;32mI (9302) MICRO_ROS: alive, stack_min=16860 bytes[0m
+[0;32mI (14302) MICRO_ROS: alive, stack_min=16860 bytes[0m
+[0;32mI (19312) MICRO_ROS: alive, stack_min=16860 bytes[0m
+[0;32mI (24332) MICRO_ROS: alive, stack_min=16860 bytes[0m
+[0;32mI (29342) MICRO_ROS: alive, stack_min=16860 bytes[0m

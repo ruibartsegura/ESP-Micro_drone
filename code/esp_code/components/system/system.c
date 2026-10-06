@@ -29,6 +29,8 @@
 // How much error it's admitted in the altitude
 #define ALTITUDE_ERROR 5
 
+static const char *TAG = "SYSTEM";
+
 // Target of velocities + height
 ATTITUDE_TARGET att_target;
 
@@ -45,31 +47,27 @@ void system_init(void) {
     }
 
     state_init();
-
     vTaskDelay(pdMS_TO_TICKS(500));
 
     led_init();
-
     vTaskDelay(pdMS_TO_TICKS(500));
 
-    imu_init();
+    #ifndef CONFIG_SIMULATION_ON
 
-    vTaskDelay(pdMS_TO_TICKS(500));
+        imu_init();
+        vTaskDelay(pdMS_TO_TICKS(500));
 
-    height_init();
-
-    vTaskDelay(pdMS_TO_TICKS(500));
+        height_init();
+        vTaskDelay(pdMS_TO_TICKS(500));
+    #endif
     
     motors_init();
-
     vTaskDelay(pdMS_TO_TICKS(500));
 
     init_attitude_controller();
-
     vTaskDelay(pdMS_TO_TICKS(500));
 
     ros_init(); // last init
-
     vTaskDelay(pdMS_TO_TICKS(1000));
 
     is_init = true;
@@ -79,10 +77,17 @@ bool system_test(void) {
     bool test = is_init;
 
     test &= led_test();
-    test &= imu_test();
-    test &= height_test();
+
+    #ifndef CONFIG_SIMULATION_ON
+        test &= imu_test();
+        test &= height_test();
+    #endif
+
+    //test &= motors_test();
+
     test &= ros_test();
 
+    ESP_LOGI(TAG, "Fin test result %d", test);
     return test;
 }
 
@@ -135,9 +140,8 @@ void state_machine(void) {
             break;
 
         case ARMING:
-            arm_motors();
-
             if(get_take_off_ready()) {
+                arm_motors();
                 for(int t=0; t < 3; t++) {
                     led_on(LED_BLUE);
                     vTaskDelay(pdMS_TO_TICKS(150));
@@ -218,8 +222,8 @@ static void system_task(void *arg) {
         if (++log_counter >= 250) {
             log_counter = 0;
             UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
-            ESP_LOGI("system_task", "stack libre (min historico): %u bytes",
-                     (unsigned)(free_words * sizeof(StackType_t)));
+            // ESP_LOGI("system_task", "stack libre (min historico): %u bytes",
+                    //  (unsigned)(free_words * sizeof(StackType_t)));
         }
 
         vTaskDelay(pdMS_TO_TICKS(SYSTEM_TASK_PERIOD_MS));

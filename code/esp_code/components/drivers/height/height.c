@@ -95,10 +95,10 @@ static void h_sample() {
             set_h(bmp180_pressure_to_altitude(pressure_pa, 101325.0f));
             set_time_height(sample.header.stamp.nanosec = esp_timer_get_time() * 1000); // Micro -> Nanosec
 
-            ESP_LOGI(TAG, "Temp: %.1f C | Presion: %ld Pa | Altitud aprox: %.2f m",
-                        temp_c, (long)pressure_pa, sample.pose.position.z);
+            // // ESP_LOGI(TAG, "Temp: %.1f C | Presion: %ld Pa | Altitud aprox: %.2f m",
+            //             temp_c, (long)pressure_pa, sample.pose.position.z);
         } else {
-            ESP_LOGW(TAG, "Fallo leyendo el BMP180");
+            // ESP_LOGW(TAG, "Fallo leyendo el BMP180");
             return; // se conserva el ultimo dato valido, no se pisa con basura
         }
     #endif
@@ -116,8 +116,8 @@ static void bmp180_task(void *arg) {
         if (++log_counter >= 500) {
             log_counter = 0;
             UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
-            ESP_LOGI(TAG, "stack libre (min historico): %u bytes",
-                     (unsigned)(free_words * sizeof(StackType_t)));
+            // // ESP_LOGI(TAG, "stack libre (min historico): %u bytes",
+            //          (unsigned)(free_words * sizeof(StackType_t)));
         }
 
         vTaskDelay(pdMS_TO_TICKS(H_TASK_PERIOD_MS));
