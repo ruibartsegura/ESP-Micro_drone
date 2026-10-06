@@ -52,14 +52,25 @@
 #include <rmw/qos_profiles.h>
 #endif
 
-#define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){printf("Failed status on line %d: %d. Aborting.\n",__LINE__,(int)temp_rc);vTaskDelete(NULL);}}
-#define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){printf("Failed status on line %d: %d. Continuing.\n",__LINE__,(int)temp_rc);}}
+#define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){ \
+    printf("Failed status on line %d: %d. Aborting.\n",__LINE__,(int)temp_rc); \
+    vTaskDelete(NULL);}}
+
+#define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){ \
+        printf("Failed status on line %d: %d. Continuing.\n",__LINE__,(int)temp_rc);}}
 
 // ============================================================
 //                       Parameters
 // ============================================================
+
 #ifdef CONFIG_SIMULATION_ON
-    #define N_HANDLERS 7 // 5 Default + 2 for new subs(IMU, Height)
+        #include "freertos/queue.h"
+        #include <actuator_msgs/msg/actuators.h>
+        #include <sensor_msgs/msg/fluid_pressure.h>
+        #include "bmp180.h" // To transform the receiving barometer pressure to h(m)
+
+        #define N_HANDLERS 8 // 5 Default + 2 for new subs(IMU, Height)
+
 #else
     #define N_HANDLERS 5
 #endif
@@ -122,13 +133,22 @@ float altitude = MIN_ALT;
     sensor_msgs__msg__Imu imu_sub_msg;
 
     rcl_subscription_t height_sub;
-    geometry_msgs__msg__PoseStamped h_sub_msg;
+    sensor_msgs__msg__FluidPressure h_sub_msg;
 
     // Publishers
-    #define N_MOTORS 4
+    //#define NUM_MOTORS 4
+    static double motors_buf[NUM_MOTORS];
+    static char   frame_id_buf[] = "base_link";
 
-    rcl_publisher_t motors_pub[N_MOTORS];
-    geometry_msgs__msg__TwistStamped motors_msg[N_MOTORS];
+    // Necesary because the publisher is called from another task
+    static volatile bool motors_pub_ready = false;
+
+    // Queue of 1 for new motors msg
+    typedef struct { double v[NUM_MOTORS]; } motors_cmd_t;
+    static QueueHandle_t motors_q = NULL;
+
+    rcl_publisher_t motors_pub;
+    actuator_msgs__msg__Actuators motors_msg;
 #endif
 
 
@@ -298,21 +318,50 @@ void fill_imu_msg(sensor_msgs__msg__Imu * out) {
 
     // Height Callback
     void height_callback(const void * msgin) {
-        const geometry_msgs__msg__PoseStamped * new_msg = (const geometry_msgs__msg__PoseStamped *)msgin;
+        const sensor_msgs__msg__FluidPressure * new_msg = (const sensor_msgs__msg__FluidPressure *)msgin;
         pthread_mutex_lock(&lock);
         h_sub_msg = *new_msg;
         pthread_mutex_unlock(&lock);
 
-        set_h(h_sub_msg.pose.position.z);
+        set_h(bmp180_pressure_to_altitude(h_sub_msg.fluid_pressure, 101325.0f));
         set_time_height(h_sub_msg.header.stamp.nanosec);
     }
 
-    void pub_motor_speed(uint8_t motor_id, uint8_t motor_spd) {
-        int64_t now_ms = esp_timer_get_time();
+    // Motors
+    void motors_msg_init(void) {
+       actuator_msgs__msg__Actuators__init(&motors_msg);  // opcional, pero deja todo en estado válido
 
-        motors_msg[motor_id].twist.linear.x = motor_spd;
-        motors_msg[motor_id].header.stamp.nanosec = now_ms * 1000;
-        RCSOFTCHECK(rcl_publish(&motors_pub[motor_id], &motors_msg[motor_id], NULL));      
+       motors_msg.velocity.data     = motors_buf;
+       motors_msg.velocity.size     = NUM_MOTORS;
+       motors_msg.velocity.capacity = NUM_MOTORS;
+
+       motors_msg.header.frame_id.data     = frame_id_buf;
+       motors_msg.header.frame_id.size     = strlen(frame_id_buf);
+       motors_msg.header.frame_id.capacity = sizeof(frame_id_buf);
+
+        motors_q = xQueueCreate(1, sizeof(motors_cmd_t));
+    }   
+
+    // Update value for the motors
+    void pub_motor_speed(const double power[NUM_MOTORS]) {
+        if (motors_q == NULL) return;
+        motors_cmd_t cmd;
+        memcpy(cmd.v, power, sizeof(cmd.v));
+        xQueueOverwrite(motors_q, &cmd);
+    }
+
+    // Timer for motors, independent
+    static void motors_timer_callback(rcl_timer_t *timer, int64_t last_call_time) {
+        RCLC_UNUSED(last_call_time);
+        motors_cmd_t cmd;
+        if (timer == NULL || !motors_pub_ready) return;
+        if (xQueueReceive(motors_q, &cmd, 0) != pdTRUE) return;  // nada nuevo
+
+        int64_t now_us = esp_timer_get_time();
+        for (int i = 0; i < NUM_MOTORS; i++) motors_msg.velocity.data[i] = cmd.v[i];
+        motors_msg.header.stamp.sec     = (int32_t)(now_us / 1000000);
+        motors_msg.header.stamp.nanosec = (uint32_t)((now_us % 1000000) * 1000);
+        RCSOFTCHECK(rcl_publish(&motors_pub, &motors_msg, NULL));
     }
 #endif
 
@@ -374,7 +423,7 @@ void micro_ros_task(void * arg) {
         &imu_pub,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
-        "imu_data"));
+        "drone/imu_data"));
     
     // QoS params sub
     rmw_qos_profile_t params_qos = rmw_qos_profile_default;
@@ -387,48 +436,40 @@ void micro_ros_task(void * arg) {
     RCCHECK(rclc_subscription_init(
         &params_sub, &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(my_msgs, msg, Params),
-        "params", &params_qos));
+        "drone/params", &params_qos));
 
     // Init cmd vel sub
     RCCHECK(rclc_subscription_init_default(
         &cmd_vel_sub, &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, TwistStamped),
-        "cmd_vel"));
+        "drone/cmd_vel"));
 
     // Init take off service
     RCCHECK(rclc_service_init_default(
         &takeoff_srv, &node,
         ROSIDL_GET_SRV_TYPE_SUPPORT(my_msgs, srv, Takeoff),
-        "takeoff_srv"
+        "drone/takeoff_srv"
     ));
 
     // Initialitation for simulation pub/sub
     #ifdef CONFIG_SIMULATION_ON
         // Init imu sub
-        RCCHECK(rclc_subscription_init_default(
-            &imu_sub, &node,
-            ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
-            "imu_4_drone"));
+        RCCHECK(rclc_subscription_init_best_effort(&imu_sub, &node,
+            ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu), "imu/data"));
 
-        // Init height sub
-        RCCHECK(rclc_subscription_init_default(
-            &height_sub, &node,
-            ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, PoseStamped),
-            "h_4_drone"));
+        // Init barometer sub
+        RCCHECK(rclc_subscription_init_best_effort(&height_sub, &node,
+            ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, FluidPressure), "barometer/data"));
+        
+        // Init motors pub
+        rmw_qos_profile_t motors_qos = rmw_qos_profile_default;   // RELIABLE + VOLATILE
+        motors_qos.history = RMW_QOS_POLICY_HISTORY_KEEP_LAST;
+        motors_qos.depth   = 2;
 
-        // Init motors pubs
-        char topic_name[16];
-        for (int x = 0; x < N_MOTORS; x++) {
-            // vel_m1, vel_m2...
-            snprintf(topic_name, sizeof(topic_name), "vel_m%d", x + 1); 
-
-            RCCHECK(rclc_publisher_init_default(
-                &motors_pub[x],
-                &node,
-                ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, TwistStamped),
-                topic_name));
-        }
-
+        RCCHECK(rclc_publisher_init(&motors_pub, &node,
+            ROSIDL_GET_MSG_TYPE_SUPPORT(actuator_msgs, msg, Actuators),
+            "/drone/command/motor_speed", &motors_qos));
+        motors_pub_ready = true;
     #endif
 
     // Init main timer
@@ -455,19 +496,25 @@ void micro_ros_task(void * arg) {
         &takeoff_res, takeoff_callback));
 
     #ifdef CONFIG_SIMULATION_ON
-    RCCHECK(rclc_executor_add_subscription(&executor, &imu_sub,
-        &imu_sub_msg, &imu_callback, ON_NEW_DATA));
+        // Motors timer
+        rcl_timer_t motors_timer;
+        RCCHECK(rclc_timer_init_default2(&motors_timer, &support,
+                RCL_MS_TO_NS(20), motors_timer_callback, true));   // 50 Hz
+        RCCHECK(rclc_executor_add_timer(&executor, &motors_timer));
 
-    RCCHECK(rclc_executor_add_subscription(&executor, &height_sub,
-        &h_sub_msg, &height_callback, ON_NEW_DATA));
+        // Simulation subs
+        RCCHECK(rclc_executor_add_subscription(&executor, &imu_sub,
+            &imu_sub_msg, &imu_callback, ON_NEW_DATA));
+
+        RCCHECK(rclc_executor_add_subscription(&executor, &height_sub,
+            &h_sub_msg, &height_callback, ON_NEW_DATA));
     #endif
 
 
     int64_t last_log_us = esp_timer_get_time();
 
     while (1) {
-        rclc_executor_spin_some(&executor, RCL_MS_TO_NS(500));
-        usleep(10000);
+        rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
 
         int64_t now_us = esp_timer_get_time();
         if (now_us - last_log_us >= 5000000) {
@@ -484,9 +531,14 @@ void ros_init(void) {
         return;
     }
 
+#ifdef CONFIG_SIMULATION_ON
+    motors_msg_init();
+#endif
+
 #if defined(CONFIG_MICRO_ROS_ESP_NETIF_WLAN) || defined(CONFIG_MICRO_ROS_ESP_NETIF_ENET)
     ESP_ERROR_CHECK(uros_network_interface_initialize());
 #endif
+    
 
     xTaskCreate(micro_ros_task,
             "uros_task",

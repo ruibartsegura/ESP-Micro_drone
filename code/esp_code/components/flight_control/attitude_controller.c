@@ -39,7 +39,7 @@
 #define KI 1 // Integrative
 #define KD 1 // Derivative
 
-#define throttle_base 100 // Min throttle to hover
+#define throttle_base 2387 // Min throttle to hover
 
 // Allowed diference between target adn actual height in 
 float DIFF_H_ALLOWED = 0.01; // In meters
@@ -47,14 +47,6 @@ float DIFF_H_ALLOWED = 0.01; // In meters
 RPY last_rpy;
 float last_h, last_vel_Z;
 float err_h;
-
-
-typedef enum {
-    MOTOR_1,
-    MOTOR_2,
-    MOTOR_3,
-    MOTOR_4
-} MotorsNum;
 
 bool check_h_reached() {
   if (fabsf(err_h) <= DIFF_H_ALLOWED) {
@@ -245,19 +237,17 @@ void control_attitude() {
   
   err_h = attitude_target.h - h; // Distance between target and actual h.
 
-  // TODO unidades de throttle_base(Se puede hacer parametro del kconfig)
+  double power[N_MOTORS];
 
   // Motors power.
-  motor1 = pow_h + pow_roll - pow_pitch - pow_yaw;
-  motor2 = pow_h - pow_roll - pow_pitch + pow_yaw;
-  motor3 = pow_h - pow_roll + pow_pitch - pow_yaw;
-  motor4 = pow_h + pow_roll + pow_pitch + pow_yaw;
+  power[0] = pow_h + pow_roll - pow_pitch - pow_yaw;
+  power[1] = pow_h - pow_roll - pow_pitch + pow_yaw;
+  power[2] = pow_h - pow_roll + pow_pitch - pow_yaw;
+  power[3] = pow_h + pow_roll + pow_pitch + pow_yaw;
 
   // Set mottor speed
-  set_motor_speed(MOTOR_1, motor1);
-  set_motor_speed(MOTOR_2, motor2);
-  set_motor_speed(MOTOR_3, motor3);
-  set_motor_speed(MOTOR_4, motor4);
+  set_motor_speed(power);
+
 }
 
 static void attitude_task(void *arg) {

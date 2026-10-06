@@ -19,8 +19,10 @@ bool get_take_off_ready(); // return the if srv arrive
 float get_take_off_alt(); // return the altitude
 geometry_msgs__msg__Twist get_cmd_vel(); // return the cmd_vel
 
+#define NUM_MOTORS 4
+
 #ifdef CONFIG_SIMULATION_ON
-    void pub_motor_speed(uint8_t motor_id, uint8_t motor_spd);
+    void pub_motor_speed(const double power[NUM_MOTORS]);
 #endif
 
 

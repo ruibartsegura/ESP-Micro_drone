@@ -29,7 +29,7 @@ void disarm_motors();
 void motors_init(void);
 bool motors_test(void); // Check leds
 
-void set_motor_speed(uint8_t motor_id, uint8_t motor_spd);
+void set_motor_speed(double power[N_MOTORS];);
 
 void motors_stop_all(void);
 

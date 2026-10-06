@@ -24,7 +24,10 @@ static bool drone_armed = false;
 static bool is_init = false;
 
 // GPIO pin and LEDC channel are just used with real drone, no simulation
-#ifndef CONFIG_SIMULATION_ON
+#ifdef CONFIG_SIMULATION_ON
+    #define TEST_VAL 2387
+#else
+    #define TEST_VAL 100
     static const gpio_num_t motor_gpio[N_MOTORS] = {
         motor_1,
         motor_2,
@@ -48,39 +51,38 @@ void disarm_motors() {
     drone_armed = false;
 }
 
-void set_motor_speed(uint8_t motor_id, uint8_t motor_spd) {
-    // Check the motor id is valid
-    if (motor_id >= N_MOTORS) {
-        return;
-    }
-
+void set_motor_speed(double power[N_MOTORS]) {
     // When drone is disarmed, the motors doesn't work
     if (!drone_armed) {
-        motor_spd = 0;
+        for (int x = 0; x < N_MOTORS; x++) {
+            power[x] = 0;
+        }
     }
 
     // With simulation pass the motor speed to ROS2 pub
     #ifdef CONFIG_SIMULATION_ON
-        pub_motor_speed(motor_id, motor_spd);
+        pub_motor_speed(power);
 
     #else
-        uint8_t spd_percent = motor_spd; // TODO Cambiar necesito modelo real
-        // Clamp motor spdeed
-        if (spd_percent > 100) {
-            spd_percent = 100;
+        for (int x = 0; x < N_MOTORS; x++) {
+            uint8_t spd_percent[N_MOTORS] = power; // TODO Cambiar necesito modelo real
+
+            // Clamp motor spdeed
+            if (spd_percent[x] > 100) {
+                spd_percent[x] = 100;
+            }
+            uint32_t duty = (spd_percent[x] * ((1 << LEDC_DUTY_RES) - 1)) / 100;
+            ledc_set_duty(LEDC_MODE, motor_channel[x], duty);
+            ledc_update_duty(LEDC_MODE, motor_channel[x]);
         }
-        uint32_t duty = (spd_percent * ((1 << LEDC_DUTY_RES) - 1)) / 100;
-        ledc_set_duty(LEDC_MODE, motor_channel[motor_id], duty);
-        ledc_update_duty(LEDC_MODE, motor_channel[motor_id]);
     #endif
 }
 
 void motors_stop_all(void) {
     // With simulation pass the motor speed to ROS2 pub
     #ifdef CONFIG_SIMULATION_ON
-        for (int i = 0; i < N_MOTORS; i++) {
-            pub_motor_speed(i+1, 0);
-        }
+        double power[N_MOTORS] = {0};
+        pub_motor_speed(power);
 
     #else
         for (int i = 0; i < N_MOTORS; i++) {
@@ -131,20 +133,27 @@ bool motors_test(void) {
     }
     
     ESP_LOGI(TAG, "Empieza test");
+    double power[N_MOTORS];
     
     for (int x = 0; x < N_MOTORS; x++) {
-        for (int vel = 0; vel <= 100; vel = vel + 10) {
-            set_motor_speed(x, vel);
-            set_motor_speed(x, vel);
+        for (int vel = TEST_VAL/2; vel <= TEST_VAL; vel = vel + 50) {
+            power[x] = vel;
+            set_motor_speed(power);
             vTaskDelay(pdMS_TO_TICKS(150));
         }
-        for (int vel = 100; vel >= 0; vel = vel - 10) {
-            set_motor_speed(x, vel);
-            set_motor_speed(x, vel);
+    
+        for (int vel = TEST_VAL; vel >= 0; vel = vel - 100) {
+            power[x] = vel;
+            set_motor_speed(power);
             vTaskDelay(pdMS_TO_TICKS(150));
         }
-
+        power[x] = 0;
     }
+    
+    // Make sure the motors are stopped before finish the test
+    motors_stop_all();
+    vTaskDelay(pdMS_TO_TICKS(150));
+
     
     ESP_LOGI(TAG, "Termina test");
     return true;
