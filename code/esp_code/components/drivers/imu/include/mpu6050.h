@@ -1,8 +1,19 @@
-/********************************************************************************************
- * Project: MPU6050 ESP32 Sensor Interface
- * Original author: Muhammad Idrees
- * Corregido: fix de init, bias explícito (sin estado global oculto).
- ********************************************************************************************/
+/**
+ * Made by Rui B.S.
+ * Date: 22/07/2026
+ * email: rui.bartolome@gmail.com
+ * Based on: "MPU6050 ESP32 Sensor Interface", original author Muhammad Idrees
+ *
+ * Description:
+ *   Public interface and register addresses of the MPU-6050 driver.
+ *   Changes: init fix and explicit bias (no hidden global state).
+ *
+ * Functions:
+ *   - mpu6050_init(): wakes up and configures the sensor.
+ *   - mpu6050_read_raw_data(): reads the raw accelerometer and gyroscope data.
+ *   - mpu6050_convert_accel() / mpu6050_convert_gyro(): convert raw data to units.
+ *   - mpu6050_calibrate(): computes the bias. The drone must be still and level.
+ */
 
 #ifndef MPU6050_H
 #define MPU6050_H

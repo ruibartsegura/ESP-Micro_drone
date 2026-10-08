@@ -1,3 +1,16 @@
+/**
+ * Made by Rui B.S.
+ * Date: 22/07/2026
+ * email: rui.bartolome@gmail.com
+ *
+ * Description:
+ *   Entry point of the firmware. ESP-IDF calls app_main() when the chip
+ *   boots, and it only starts the system task that runs the drone.
+ *
+ * Functions:
+ *   - app_main(): starts the system with system_start().
+ */
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

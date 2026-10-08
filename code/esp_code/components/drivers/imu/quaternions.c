@@ -1,20 +1,31 @@
-/********************************************************************************************
- * Project: MPU6050 ESP32 Sensor Interface
- * Original author: Muhammad Idrees
+/**
+ * Made by Rui B.S.
+ * Date: 22/07/2026
+ * email: rui.bartolome@gmail.com
+ * Based on: "MPU6050 ESP32 Sensor Interface", original author Muhammad Idrees
  *
- * CORRECCIONES aplicadas (ver comentarios "FIX:"):
- *  1. quaternion_init() ponía w=2.0 en vez de 1.0 (cuaternión identidad).
- *  2. Normalización aplicaba sqrt() y luego 1/sqrt() sobre ese resultado,
- *     lo cual da magnitud^-0.5 en vez de magnitud^-1. Se corrige llamando
- *     directamente inv_sqrt() sobre la suma de cuadrados.
- *  3. BETA=2.0 era excesivo (típico 0.03-0.5): el filtro ignoraba casi
- *     por completo el giroscopio y confiaba solo en el acelerómetro,
- *     que en vuelo incluye aceleración lineal, no solo gravedad.
- *  4. El factor de la derivada del cuaternión era 0.9 en vez de 0.5
- *     (fórmula estándar qDot = 0.5 * q ⊗ [0, gx, gy, gz]).
- *  5. Se documenta que gx,gy,gz deben venir en rad/s (antes se pasaban
- *     en °/s desde imu.c, deriva ~57x más rápida de lo real).
- ********************************************************************************************/
+ * Description:
+ *   Madgwick filter with quaternions to estimate the orientation of the
+ *   drone from the gyroscope and the accelerometer.
+ *
+ * Changes from the original version (see the "FIX:" comments):
+ *   1. quaternion_init() set w=2.0 instead of 1.0 (identity quaternion).
+ *   2. The normalisation applied sqrt() and then 1/sqrt(), which gives
+ *      magnitude^-0.5 instead of magnitude^-1. Now inv_sqrt() is called
+ *      directly on the sum of squares.
+ *   3. BETA=2.0 was too high (usual values are 0.03-0.5): the filter almost
+ *      ignored the gyroscope and trusted only the accelerometer.
+ *   4. The quaternion derivative factor was 0.9 instead of 0.5
+ *      (standard formula qDot = 0.5 * q x [0, gx, gy, gz]).
+ *   5. gx, gy, gz must be in rad/s (before, imu.c passed them in deg/s).
+ *
+ * Functions:
+ *   - inv_sqrt(): returns 1/sqrt(x).
+ *   - wrap_angle(): keeps an angle inside [-pi, pi].
+ *   - quaternion_init(): sets the identity quaternion.
+ *   - quaternion_update(): runs one step of the Madgwick filter.
+ *   - quaternion_get_roll() / _pitch() / _yaw(): return the Euler angles.
+ */
 
 #include "quaternions.h"
 #include <math.h>

@@ -1,8 +1,18 @@
-/********************************************************************************************
- * Project: MPU6050 ESP32 Sensor Interface
- * Original author: Muhammad Idrees
- * Corregido: normalización, beta, factor de integración, unidades.
- ********************************************************************************************/
+/**
+ * Made by Rui B.S.
+ * Date: 22/07/2026
+ * email: rui.bartolome@gmail.com
+ * Based on: "MPU6050 ESP32 Sensor Interface", original author Muhammad Idrees
+ *
+ * Description:
+ *   Public interface of the Madgwick filter. Changes: normalisation, beta,
+ *   integration factor and units fixed.
+ *
+ * Functions:
+ *   - quaternion_init(): sets the identity quaternion.
+ *   - quaternion_update(): runs one step of the filter (gyro in rad/s, dt in s).
+ *   - quaternion_get_roll() / _pitch() / _yaw(): return the Euler angles.
+ */
 
 #ifndef QUATERNIONS_H
 #define QUATERNIONS_H

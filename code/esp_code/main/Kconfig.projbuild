@@ -222,6 +222,20 @@ menu "X-WING Config"
             help
                 Priority of attitude task, higher value means higher priority
 
+        config TUNING_TASK_STACK
+            int "Stack the tuning task (Bytes)"
+            default 3072
+            help
+                Stack size in Bytes of the tuning task (change the gains
+                from the serial console while running)
+
+        config TUNING_TASK_PRIO
+            int "Priority of the tuning task"
+            default 1
+            help
+                Priority of the tuning task. Keep it low so it never
+                delays the control tasks
+
         config MICRO_ROS_STACK
             int "Stack the micro-ROS app (Bytes)"
             default 16000

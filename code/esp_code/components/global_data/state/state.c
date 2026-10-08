@@ -2,6 +2,20 @@
  * Made by Rui B.S.
  * Date: 28/06/2026
  * email: rui.bartolome@gmail.com
+ *
+ * Description:
+ *   Global state of the drone (position, orientation, velocities,
+ *   acceleration, timestamps and state machine state). The sensor tasks
+ *   write it and the controller and ROS read it. Every access is protected
+ *   with a critical section, so it is thread safe.
+ *
+ * Functions:
+ *   - state_init(): resets the state (identity orientation).
+ *   - set_position(), set_h(), set_orientation(), set_vel_lin(), set_vel_ang(),
+ *     set_acc_lin(), set_time_imu(), set_time_height(), set_sm_state(): setters.
+ *   - get_position(), get_orientation(), get_vel_lin(), get_vel_ang(),
+ *     get_acc_lin(), get_time_imu(), get_time_height(), get_sm_state(): getters.
+ *   - get_global_state(): returns a copy of the whole state.
  */
 
 #include <string.h>

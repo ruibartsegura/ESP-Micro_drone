@@ -2,6 +2,33 @@
  * Made by Rui B.S.
  * Date: 23/05/2026
  * email: rui.bartolome@gmail.com
+ *
+ * Description:
+ *   micro-ROS interface of the drone. It connects to the micro-ROS agent
+ *   over WiFi (UDP), creates the "rui_drone" node and runs the executor in
+ *   its own FreeRTOS task. Shared variables are protected with a mutex.
+ *     - Publishes:  drone/imu_data (sensor_msgs/Imu)
+ *     - Subscribes: drone/cmd_vel (geometry_msgs/TwistStamped),
+ *                   drone/params (my_msgs/Params)
+ *     - Service:    drone/takeoff_srv (my_msgs/Takeoff)
+ *   In simulation mode it also subscribes to imu/data and barometer/data
+ *   and publishes the motor speeds to /drone/command/motor_speed.
+ *
+ * Functions:
+ *   - apply_pending_params(): applies the last received parameters.
+ *   - param_callback(): saves the parameters received on drone/params.
+ *   - get_cmd_vel(): returns the last velocity command.
+ *   - cmd_vel_callback(): saves the velocity received on drone/cmd_vel.
+ *   - get_take_off_ready(): returns true if a take-off request was accepted.
+ *   - get_take_off_alt(): returns the requested take-off altitude.
+ *   - takeoff_callback(): checks a take-off request and answers it.
+ *   - fill_imu_msg(): fills the IMU message from the global state.
+ *   - imu_callback(), height_callback(): (simulation) save the sensor data from Gazebo.
+ *   - motors_msg_init(), pub_motor_speed(): (simulation) prepare and send the motor speeds.
+ *   - timer_callback(): publishes the IMU data periodically.
+ *   - micro_ros_task(): creates the node, publishers, subscribers, service and executor.
+ *   - ros_init(): starts the network interface and the micro-ROS task.
+ *   - ros_test(): checks that the module started correctly.
  */
 
 #include <stdbool.h>
@@ -320,19 +347,23 @@ void fill_imu_msg(sensor_msgs__msg__Imu * out) {
         imu_sub_msg = *new_msg;
         pthread_mutex_unlock(&lock);
 
+        // Gazebo sends rad/s and m/s^2, the real driver (and the controller)
+        // uses deg/s and g
         set_vel_ang(
-            imu_sub_msg.angular_velocity.x,
-            imu_sub_msg.angular_velocity.y,
-            imu_sub_msg.angular_velocity.z
+            imu_sub_msg.angular_velocity.x / DEG_TO_RAD,
+            imu_sub_msg.angular_velocity.y / DEG_TO_RAD,
+            imu_sub_msg.angular_velocity.z / DEG_TO_RAD
         );
 
         set_acc_lin(
-            imu_sub_msg.linear_acceleration.x,
-            imu_sub_msg.linear_acceleration.y,
-            imu_sub_msg.linear_acceleration.z
+            imu_sub_msg.linear_acceleration.x / GRAVITY_MS2,
+            imu_sub_msg.linear_acceleration.y / GRAVITY_MS2,
+            imu_sub_msg.linear_acceleration.z / GRAVITY_MS2
         );
 
-        set_time_imu(imu_sub_msg.header.stamp.nanosec);
+        // Full time in ns (only nanosec goes back to 0 every second)
+        set_time_imu((int64_t)imu_sub_msg.header.stamp.sec * 1000000000LL
+                     + imu_sub_msg.header.stamp.nanosec);
     }
 
     // Height Callback
@@ -343,7 +374,8 @@ void fill_imu_msg(sensor_msgs__msg__Imu * out) {
         pthread_mutex_unlock(&lock);
 
         set_h(bmp180_pressure_to_altitude(h_sub_msg.fluid_pressure, 101325.0f));
-        set_time_height(h_sub_msg.header.stamp.nanosec);
+        set_time_height((int64_t)h_sub_msg.header.stamp.sec * 1000000000LL
+                        + h_sub_msg.header.stamp.nanosec);
     }
 
     // Motors
@@ -567,12 +599,12 @@ void micro_ros_task(void * arg) {
             last_log_us = now_us;
             UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
             #ifdef CONFIG_SIMULATION_ON
-                ESP_LOGI(TAG, "alive, imu_recv=%u stack_min=%u bytes",
-                         (unsigned)imu_recv_cnt,
-                         (unsigned)(free_words * sizeof(StackType_t)));
+                // ESP_LOGI(TAG, "alive, imu_recv=%u stack_min=%u bytes",
+                //          (unsigned)imu_recv_cnt,
+                //          (unsigned)(free_words * sizeof(StackType_t)));
             #else
-                ESP_LOGI(TAG, "alive, stack_min=%u bytes",
-                         (unsigned)(free_words * sizeof(StackType_t)));
+                // ESP_LOGI(TAG, "alive, stack_min=%u bytes",
+                //          (unsigned)(free_words * sizeof(StackType_t)));
             #endif
         }
     }

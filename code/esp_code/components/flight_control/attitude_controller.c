@@ -3,9 +3,30 @@
  * Date: 29/07/2026
  * email: rui.bartolome@gmail.com
  *
+ * Description:
+ *   Attitude controller of the drone. It runs a dual-loop cascade PID in
+ *   its own FreeRTOS task every 15 ms:
+ *     - Outer loop: converts cmd_vel into target roll/pitch angles with an
+ *       aerodynamic drag model.
+ *     - Inner loop: converts the angular rate error into motor commands
+ *       with an X-frame motor mix.
+ *   The height is controlled apart, adding the altitude error to the base
+ *   throttle. Roll and pitch are estimated with a complementary filter.
+ *
+ * Functions:
+ *   - check_h_reached(): returns true if the drone is at the target height.
+ *   - complementary_filter(): mixes two values with the ALPHA weight.
+ *   - get_roll_pitch(): estimates roll and pitch from the IMU.
+ *   - cmd_vel_2_RP(): converts a velocity command into target roll and pitch.
+ *   - control_attitude(): runs one step of the controller and sets the motors.
+ *   - attitude_task(): FreeRTOS task that calls control_attitude() periodically.
+ *   - init_attitude_controller(): creates the attitude task.
+ *   - get_gains() / set_gains(): read / change the gains while flying
+ *     (used by the tuning task).
  */
 
 #include <math.h>
+#include <pthread.h>
 
 #include "attitude_controller.h"
 
@@ -34,15 +55,50 @@
 #define m 16.5 // Drone mass
 #define MAX_ANGLE 0.52 // 30º in rad
 
-// PID -> will be /100
-#define KP 85 // Proportional
-#define KI 100 // Integrative
-#define KD 100 // Derivative
 
-#define throttle_base 2387 // Min throttle to hover
+// PID H -> will be /100
+#define KP_H 100 // Proportional 350 pow / 1m error
+
+// PID Angle & rate
+#define KP_ANGLE 2   // deg error -> deg/s target
+#define KP_RATE  10   // deg/s error -> motor power
+
+// Limits so the attitude never takes all the throttle of the motors
+#define MAX_RATE    200.0f // Max target roll/pitch rate (deg/s)
+#define MAX_POW_RPY 400.0f // Max power of each roll/pitch/yaw term
+
+#define throttle_base 2400 // Min throttle to hover
+#define max_throttle 3000
+
+// One log line every LOG_EVERY cycles (more slows down the loop)
+#define LOG_EVERY 10
 
 static const char *TAG = "ATTITUDE";
 
+
+// Gains used by the controller. They start with the defines and can be
+// changed while flying with set_gains() (tuning task).
+static GAINS gains = {
+  .kp_h        = KP_H,
+  .kp_angle    = KP_ANGLE,
+  .kp_rate     = KP_RATE,
+  .max_rate    = MAX_RATE,
+  .max_pow_rpy = MAX_POW_RPY,
+  .base        = throttle_base,
+};
+static pthread_mutex_t gains_lock = PTHREAD_MUTEX_INITIALIZER;
+
+void get_gains(GAINS *out) {
+  pthread_mutex_lock(&gains_lock);
+  *out = gains;
+  pthread_mutex_unlock(&gains_lock);
+}
+
+void set_gains(const GAINS *in) {
+  pthread_mutex_lock(&gains_lock);
+  gains = *in;
+  pthread_mutex_unlock(&gains_lock);
+}
 
 // Allowed diference between target adn actual height in 
 float DIFF_H_ALLOWED = 0.01; // In meters
@@ -57,6 +113,15 @@ bool check_h_reached() {
   } else {
     return false;
   }
+}
+
+static float clampf(float x, float lim) {
+  if (x > lim) {
+    return lim;
+  } else if (x < -lim) {
+    return -lim;
+  }
+  return x;
 }
 
 float complementary_filter(float a, float b, float alpha) {
@@ -124,8 +189,8 @@ void cmd_vel_2_RP(float *targ_roll, float *targ_pitch, geometry_msgs__msg__Twist
     }
 
     // Get the roll and pitch for the input vel
-    roll  = sign_x * atan2f((C*rho*A*vy*vy), (2*m*g));
-    pitch = sign_y * atan2f((C*rho*A*vx*vx), (2*m*g));
+    roll  = sign_y * atan2f((C*rho*A*vy*vy), (2*m*g));
+    pitch = sign_x * atan2f((C*rho*A*vx*vx), (2*m*g));
 
     // Clamp result at 30º max
     if (roll > MAX_ANGLE) {
@@ -168,12 +233,15 @@ void control_attitude() {
   // Get the desired attitude of the drone
   ATTITUDE_TARGET attitude_target = get_attitude();
 
+  // Gains of this cycle (they can change at runtime)
+  GAINS k;
+  get_gains(&k);
+
   // EXTERNAL LOOP
   // Get Roll & Pitch
   get_roll_pitch(&roll, &pitch);
 
   // Get target roll & pitch
-  cmd_vel_2_RP(&targ_roll, &targ_pitch, attitude_target.cmd_vel);
   cmd_vel_2_RP(&targ_roll, &targ_pitch, attitude_target.cmd_vel);
 
   // Get the error in the roll and pitch
@@ -183,8 +251,8 @@ void control_attitude() {
 
   // INTERNAL LOOP
   // Get the rate of roll & pitch
-  targ_roll_rate = KP * err_roll;
-  targ_pitch_rate = KP * err_pitch; // TODO: CLAMP 
+  targ_roll_rate = clampf(k.kp_angle * err_roll, k.max_rate);
+  targ_pitch_rate = clampf(k.kp_angle * err_pitch, k.max_rate);
   targ_yaw_rate = attitude_target.cmd_vel.angular.z * 180.0f/M_PI;
 
   // Get measured roll, pitch, yaw rate
@@ -201,32 +269,38 @@ void control_attitude() {
   err_yaw_rate = targ_yaw_rate - yaw_rate;
 
   // Calculate the power needed for the motors
-  pow_roll = KP * err_roll_rate;
-  pow_pitch = KP * err_pitch_rate;
-  pow_yaw = KP * err_yaw_rate; // TODO hacer bien PID
+  pow_roll = clampf(k.kp_rate * err_roll_rate, k.max_pow_rpy);
+  pow_pitch = clampf(k.kp_rate * err_pitch_rate, k.max_pow_rpy);
+  pow_yaw = clampf(k.kp_rate * err_yaw_rate, k.max_pow_rpy); // TODO hacer bien PID
 
 
   // ALTITUDE
   vec3_t pos = {0};
   get_position(&pos);
   
-  // ESP_LOGI(TAG, "Final h = %f", pos.z);
-  // ESP_LOGI(TAG, "Target h = %f", attitude_target.h);
   
   err_h = attitude_target.h - pos.z; // Distance between target and actual h.
-  pow_h = err_h * KP;
-
+  pow_h = err_h * k.kp_h;
+  
   double power[N_MOTORS];
 
   // Motors power.
-  power[0] = pow_h + pow_roll - pow_pitch - pow_yaw;
-  power[1] = pow_h - pow_roll - pow_pitch + pow_yaw;
-  power[2] = pow_h - pow_roll + pow_pitch - pow_yaw;
-  power[3] = pow_h + pow_roll + pow_pitch + pow_yaw;
+  power[0] = k.base + pow_h + pow_roll - pow_pitch - pow_yaw;
+  power[1] = k.base + pow_h - pow_roll - pow_pitch + pow_yaw;
+  power[2] = k.base + pow_h + pow_roll + pow_pitch + pow_yaw;
+  power[3] = k.base + pow_h - pow_roll + pow_pitch - pow_yaw;  
 
-  // Set mottor speed
+  // Set mottor speed (it clamps power[] to the real value sent)
   set_motor_speed(power);
 
+  // Compact log for tools/analyze_log.py (key=value)
+  // static int log_cnt = 0;
+  // if (++log_cnt >= LOG_EVERY) {
+  //   log_cnt = 0;
+  //   // ESP_LOGI(TAG, "H Actual = %f", pos.z);
+  //   // ESP_LOGI(TAG, "H Target = %f", attitude_target.h);
+  //   // ESP_LOGI(TAG, "H Error = %f", err_h);
+  // }
 }
 
 static void attitude_task(void *arg) {

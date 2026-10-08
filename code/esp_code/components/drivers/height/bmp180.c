@@ -1,11 +1,27 @@
-/*
- * bmp180.c
+/**
+ * Made by Rui B.S.
+ * Date: 25/09/2026
+ * email: rui.bartolome@gmail.com
  *
- * Implementacion del driver BMP180 (I2C, ESP-IDF driver/i2c.h legacy).
- * Formulas de compensacion tomadas del datasheet oficial Bosch BMP180.
+ * Description:
+ *   Driver for the BMP180 pressure and temperature sensor over I2C
+ *   (legacy ESP-IDF driver/i2c.h). The compensation formulas come from the
+ *   official Bosch BMP180 datasheet.
+ *
+ * Functions:
+ *   - bmp180_write_reg() / bmp180_read_regs(): write and read registers.
+ *   - be16(): joins two bytes into a big-endian 16-bit value.
+ *   - bmp180_init(): checks the chip id and reads the calibration coefficients.
+ *   - bmp180_read_raw_temp() / bmp180_read_raw_pressure(): read the raw values.
+ *   - bmp180_compute_b5(): computes the B5 value used by both compensations.
+ *   - bmp180_read_temperature(): returns the compensated temperature (C).
+ *   - bmp180_read_pressure(): returns the compensated pressure (Pa).
+ *   - bmp180_pressure_to_altitude(): converts pressure to altitude (m).
  */
 
 #include "bmp180.h"
+#include "bmp180_internal.h"
+
 #include <math.h>
 #include "esp_log.h"
 
@@ -24,6 +40,9 @@ static const char *TAG = "BMP180";
 #define BMP180_CMD_READ_PRESS   0x34
 
 #define I2C_TIMEOUT_MS 100
+
+// Value of bmp180_compute_b5() when the calibration gives a division by zero
+#define BMP180_B5_INVALID INT32_MIN
 
 // ---------- Helpers de bajo nivel I2C ----------
 
@@ -53,7 +72,7 @@ static inline int16_t be16(const uint8_t *p)
 
 esp_err_t bmp180_init(bmp180_t *dev, i2c_port_t i2c_port, bmp180_mode_t mode)
 {
-    if (dev == NULL) {
+    if (dev == NULL || mode < BMP180_MODE_ULTRA_LOW_POWER || mode > BMP180_MODE_ULTRA_HIGH_RES) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -79,6 +98,14 @@ esp_err_t bmp180_init(bmp180_t *dev, i2c_port_t i2c_port, bmp180_mode_t mode)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Fallo leyendo calibracion: %s", esp_err_to_name(err));
         return err;
+    }
+
+    for (int i = 0; i < 11; i++) {
+        uint16_t word = (uint16_t)((cal[2 * i] << 8) | cal[2 * i + 1]);
+        if (word == 0x0000 || word == 0xFFFF) {
+            ESP_LOGE(TAG, "Calibracion invalida (palabra %d = 0x%04X)", i, word);
+            return ESP_ERR_INVALID_RESPONSE;
+        }
     }
 
     dev->AC1 = be16(&cal[0]);
@@ -133,45 +160,31 @@ static esp_err_t bmp180_read_raw_pressure(bmp180_t *dev, int32_t *up)
     return ESP_OK;
 }
 
-// Calcula B5 (valor intermedio compartido por temperatura y presion)
-static int32_t bmp180_compute_b5(bmp180_t *dev, int32_t ut)
+// Calcula B5 (valor intermedio compartido por temperatura y presion).
+// Devuelve BMP180_B5_INVALID si la calibracion da una division por cero.
+int32_t bmp180_compute_b5(const bmp180_t *dev, int32_t ut)
 {
     int32_t x1 = ((ut - (int32_t)dev->AC6) * (int32_t)dev->AC5) >> 15;
-    int32_t x2 = ((int32_t)dev->MC << 11) / (x1 + dev->MD);
+    int32_t den = x1 + dev->MD;
+    if (den == 0) {
+        return BMP180_B5_INVALID;   // CHANGE 3
+    }
+    int32_t x2 = ((int32_t)dev->MC * 2048) / den;   // CHANGE 4: MC << 11
     return x1 + x2;
 }
 
-esp_err_t bmp180_read_temperature(bmp180_t *dev, float *temperature_c)
+void bmp180_compensate_temperature(int32_t b5, float *temperature_c)
 {
-    if (dev == NULL || temperature_c == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    int32_t ut;
-    esp_err_t err = bmp180_read_raw_temp(dev, &ut);
-    if (err != ESP_OK) return err;
-
-    int32_t b5 = bmp180_compute_b5(dev, ut);
     int32_t t = (b5 + 8) >> 4; // decimas de grado
-
     *temperature_c = t / 10.0f;
-    return ESP_OK;
 }
 
-esp_err_t bmp180_read_pressure(bmp180_t *dev, int32_t *pressure_pa)
+esp_err_t bmp180_compensate_pressure(const bmp180_t *dev, int32_t b5,
+                                      int32_t up, int32_t *pressure_pa)
 {
     if (dev == NULL || pressure_pa == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-
-    int32_t ut, up;
-    esp_err_t err = bmp180_read_raw_temp(dev, &ut);
-    if (err != ESP_OK) return err;
-
-    err = bmp180_read_raw_pressure(dev, &up);
-    if (err != ESP_OK) return err;
-
-    int32_t b5 = bmp180_compute_b5(dev, ut);
 
     int32_t b6 = b5 - 4000;
     int32_t x1 = ((int32_t)dev->B2 * ((b6 * b6) >> 12)) >> 11;
@@ -183,6 +196,9 @@ esp_err_t bmp180_read_pressure(bmp180_t *dev, int32_t *pressure_pa)
     x2 = ((int32_t)dev->B1 * ((b6 * b6) >> 12)) >> 16;
     x3 = ((x1 + x2) + 2) >> 2;
     uint32_t b4 = ((uint32_t)dev->AC4 * (uint32_t)(x3 + 32768)) >> 15;
+    if (b4 == 0) {
+        return ESP_ERR_INVALID_STATE;   // CHANGE 3: division by zero
+    }
     uint32_t b7 = ((uint32_t)(up - b3)) * (50000UL >> dev->mode);
 
     int32_t p;
@@ -201,11 +217,50 @@ esp_err_t bmp180_read_pressure(bmp180_t *dev, int32_t *pressure_pa)
     return ESP_OK;
 }
 
-float bmp180_pressure_to_altitude(int32_t pressure_pa, float sea_level_pa)
+esp_err_t bmp180_read_temperature(bmp180_t *dev, float *temperature_c)
 {
+    if (dev == NULL || temperature_c == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    int32_t ut;
+    esp_err_t err = bmp180_read_raw_temp(dev, &ut);
+    if (err != ESP_OK) return err;
+
+    int32_t b5 = bmp180_compute_b5(dev, ut);
+    if (b5 == BMP180_B5_INVALID) return ESP_ERR_INVALID_STATE;
+
+    bmp180_compensate_temperature(b5, temperature_c);
+    return ESP_OK;
+}
+
+esp_err_t bmp180_read_pressure(bmp180_t *dev, int32_t *pressure_pa)
+{
+    if (dev == NULL || pressure_pa == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    int32_t ut, up;
+    esp_err_t err = bmp180_read_raw_temp(dev, &ut);
+    if (err != ESP_OK) return err;
+
+    err = bmp180_read_raw_pressure(dev, &up);
+    if (err != ESP_OK) return err;
+
+    int32_t b5 = bmp180_compute_b5(dev, ut);
+    if (b5 == BMP180_B5_INVALID) return ESP_ERR_INVALID_STATE;
+
+    return bmp180_compensate_pressure(dev, b5, up, pressure_pa);
+}
+
+float bmp180_pressure_to_altitude(float pressure_pa, float sea_level_pa)
+{
+    if (!(pressure_pa > 0.0f)) {
+        return NAN;   // 0 Pa, negative or NaN is not a valid reading
+    }
     if (sea_level_pa <= 0.0f) {
         sea_level_pa = 101325.0f;
     }
     // Barometric formula
-    return 44330.0f * (1.0f - powf((float)pressure_pa / sea_level_pa, 1.0f / 5.255f));
+    return 44330.0f * (1.0f - powf(pressure_pa / sea_level_pa, 1.0f / 5.255f));
 }

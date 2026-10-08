@@ -2,6 +2,16 @@
  * Made by Rui B.S.
  * Date: 28/06/2026
  * email: rui.bartolome@gmail.com
+ *
+ * Description:
+ *   Flight parameters that can change at runtime (hovering height, maximum
+ *   velocity and land-on-site mode). The default values come from
+ *   menuconfig and ROS can update them with the drone/params topic.
+ *
+ * Functions:
+ *   - set_hovering_h() / get_hovering_h(): hovering height.
+ *   - set_max_velocity() / get_max_velocity(): maximum velocity.
+ *   - set_land_on_site() / get_land_on_site(): land-on-site mode.
  */
 
 #include <stdbool.h>
@@ -14,9 +24,9 @@
 #include <unistd.h>
 #include <time.h>
 
-extern float hov_h = CONFIG_HOVERING_H / 100;
-extern float vel_max = CONFIG_VEL_MAX / 100;
-extern bool land_on_site = CONFIG_LAND_ON_SITE;
+float hov_h = CONFIG_HOVERING_H / 100.0f; // cm -> m
+float vel_max = CONFIG_VEL_MAX / 100.0f; // ms (float division: 2 / 100 was 0)
+bool land_on_site = CONFIG_LAND_ON_SITE;
 
 void set_hovering_h(float h) {
     hov_h = h;

@@ -1,7 +1,17 @@
 /**
  * Made by Rui B.S.
- * Date: 23/05/226
+ * Date: 23/05/2026
  * email: rui.bartolome@gmail.com
+ *
+ * Description:
+ *   Driver for the 4 status LEDs of the drone (ESP built-in, red, green
+ *   and blue). The pins come from menuconfig.
+ *
+ * Functions:
+ *   - led_init(): configures the LED GPIOs.
+ *   - led_test(): turns all the LEDs on and off to check them.
+ *   - led_on() / led_off(): turns one LED on or off.
+ *   - all_on() / all_off(): turns all the LEDs on or off.
  */
 
 #include <stdbool.h>
@@ -63,6 +73,11 @@ bool led_test(void) {
 
     // ESP_LOGI(TAG, "Empieza test");
     
+    int before[N_LEDS];
+    for (int x = 0; x < N_LEDS; x++) {
+        before[x] = led_status[x];
+    }
+
     for (int x = 0; x < N_LEDS; x++) {
         gpio_set_level(led_pin[x], 1);
         vTaskDelay(pdMS_TO_TICKS(250));
@@ -76,10 +91,18 @@ bool led_test(void) {
     
     // ESP_LOGI(TAG, "Termina test");
     all_off();
+
+    // CHANGE 1: turn on again the LEDs that were on
+    for (int x = 0; x < N_LEDS; x++) {
+        if (before[x] == LED_ON) {
+            led_on((led_t)x);
+        }
+    }
     return true;
 }
 
 void led_on(led_t led) {
+    if ((unsigned)led >= N_LEDS) return;
     if (led_status[led] == LED_OFF) {
         gpio_set_level(led_pin[led], LED_ON);
         led_status[led] = LED_ON;
@@ -87,6 +110,7 @@ void led_on(led_t led) {
 }
 
 void led_off(led_t led) {
+    if ((unsigned)led >= N_LEDS) return;
     if (led_status[led] == LED_ON) {
         gpio_set_level(led_pin[led], LED_OFF);
         led_status[led] = LED_OFF;

@@ -1,3 +1,27 @@
+/**
+ * Made by Rui B.S.
+ * Date: 22/07/2026
+ * email: rui.bartolome@gmail.com
+ *
+ * Description:
+ *   Core of the drone. It initialises every module (state, LEDs, sensors,
+ *   motors, attitude controller and micro-ROS) and runs the state machine
+ *   in its own FreeRTOS task every 20 ms:
+ *   INIT -> CHECKING -> ARMING -> TAKING_OFF -> HOVERING <-> EXTERNAL_CONTROL
+ *   -> LANDING -> DISARMING. ERROR is a final state.
+ *   In simulation mode the IMU and barometer drivers are not started.
+ *
+ * Functions:
+ *   - system_init(): initialises all the modules in order (micro-ROS last).
+ *   - system_test(): checks that all the modules started correctly.
+ *   - change_state(): changes the state machine state and saves it in the global state.
+ *   - get_attitude(): returns the target attitude (cmd_vel + height).
+ *   - check_takeOff_2_hov(): checks if the take-off height has been reached.
+ *   - state_machine(): runs one step of the state machine.
+ *   - system_task(): FreeRTOS task that calls state_machine() periodically.
+ *   - system_start(): creates the system task.
+ */
+
 #include "system.h"
 
 #include <stdbool.h>
@@ -20,6 +44,7 @@
 #include "motors.h"
 
 #include "attitude_controller.h"
+#include "tuning.h"
 
 // Microros
 #include "ros_coordinator.h"
@@ -66,6 +91,10 @@ void system_init(void) {
 
     init_attitude_controller();
     vTaskDelay(pdMS_TO_TICKS(500));
+
+    // TODO: Crear flag para uso
+    init_tuning(); // change the gains from the serial console
+
 
     ros_init(); // last init
     vTaskDelay(pdMS_TO_TICKS(1000));

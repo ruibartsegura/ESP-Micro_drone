@@ -1,7 +1,17 @@
 /**
  * Made by Rui B.S.
- * Date: 24/09/226
+ * Date: 24/09/2026
  * email: rui.bartolome@gmail.com
+ *
+ * Description:
+ *   Odometry estimator of the drone. It runs in its own FreeRTOS task
+ *   every 10 ms. The estimation itself is not implemented yet.
+ *
+ * Functions:
+ *   - estimate_odom(): estimates the odometry (empty for now).
+ *   - odom_task(): FreeRTOS task that calls estimate_odom() periodically.
+ *   - odom_estimator_init(): creates the odometry task.
+ *   - odom_estimator_test(): checks that the module started correctly.
  */
 
 #include <stdbool.h>

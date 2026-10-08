@@ -1,17 +1,30 @@
-/********************************************************************************************
- * Project: MPU6050 ESP32 Sensor Interface
- * Original author: Muhammad Idrees
+/**
+ * Made by Rui B.S.
+ * Date: 22/07/2026
+ * email: rui.bartolome@gmail.com
+ * Based on: "MPU6050 ESP32 Sensor Interface", original author Muhammad Idrees
  *
- * CORRECCIONES aplicadas (ver comentarios "FIX:"):
- *  1. mpu6050_init() no escribía el registro PWR_MGMT_1 realmente.
- *  2. El bias calculado en mpu6050_calibrate() se descartaba (shadowing de
- *     variables estáticas del módulo). Ahora el bias se pasa siempre
- *     explícito, no hay estado global oculto.
- *  3. Se configura explícitamente el rango de ±2g / ±250°/s en vez de
- *     confiar en el valor de reset del chip.
- *  4. Lectura de registros con transacción atómica (write+read con
- *     repeated start) en vez de dos transacciones I2C separadas.
- ********************************************************************************************/
+ * Description:
+ *   Low-level driver for the MPU-6050 (accelerometer + gyroscope) over I2C.
+ *   It uses the +-2 g and +-250 deg/s ranges.
+ *
+ * Changes from the original version (see the "FIX:" comments):
+ *   1. mpu6050_init() did not really write the PWR_MGMT_1 register.
+ *   2. The bias computed in mpu6050_calibrate() was lost (it was shadowed by
+ *      static variables). Now the bias is always passed explicitly.
+ *   3. The +-2 g / +-250 deg/s ranges are set explicitly instead of using
+ *      the reset value of the chip.
+ *   4. Registers are read in one atomic transaction (write + read with
+ *      repeated start) instead of two separate I2C transactions.
+ *
+ * Functions:
+ *   - mpu6050_write_reg(): writes one register.
+ *   - mpu6050_init(): wakes up and configures the sensor.
+ *   - mpu6050_read_raw_data(): reads the raw accelerometer and gyroscope data.
+ *   - mpu6050_convert_accel(): converts raw acceleration to g, removing the bias.
+ *   - mpu6050_convert_gyro(): converts raw angular velocity to deg/s, removing the bias.
+ *   - mpu6050_calibrate(): computes the accelerometer and gyroscope bias.
+ */
 
 #include "mpu6050.h"
 #include "freertos/FreeRTOS.h"
@@ -103,8 +116,9 @@ esp_err_t mpu6050_read_raw_data(i2c_port_t i2c_num,
     *gyro_y  = (int16_t)((data[10] << 8) | data[11]);
     *gyro_z  = (int16_t)((data[12] << 8) | data[13]);
 
-    *t_stamp = esp_timer_get_time() * 1000; // Nanosec
-
+    if (t_stamp != NULL) {
+        *t_stamp = esp_timer_get_time() * 1000; // Nanosec
+    }
     return ESP_OK;
 }
 

@@ -1,3 +1,19 @@
+/**
+ * Made by Rui B.S.
+ * Date: 19/07/2026
+ * email: rui.bartolome@gmail.com
+ *
+ * Description:
+ *   Public interface, pins and PWM configuration of the motor driver.
+ *
+ * Functions:
+ *   - arm_motors() / disarm_motors(): allows or blocks the motors.
+ *   - motors_init(): configures the PWM timer and channels.
+ *   - motors_test(): spins the motors to check them.
+ *   - set_motor_speed(): sets the power of the 4 motors.
+ *   - motors_stop_all(): stops all the motors.
+ */
+
 #ifndef MOTORS_H
 #define MOTORS_H
 
@@ -22,14 +38,16 @@
 
 #define N_MOTORS 4
 
-void arm_motors();
+void arm_motors(void);
 
-void disarm_motors();
+void disarm_motors(void);
 
 void motors_init(void);
 bool motors_test(void); // Check leds
 
-void set_motor_speed(double power[N_MOTORS];);
+// Power of each motor: 0..100 % on the real drone, 0..MAX_POWER in simulation.
+// The values are limited, and NaN or negative values become 0.
+void set_motor_speed(double power[N_MOTORS]);
 
 void motors_stop_all(void);
 

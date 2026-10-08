@@ -3,7 +3,20 @@
  * Date: 23/05/2026
  * email: rui.bartolome@gmail.com
  *
+ * Description:
+ *   IMU module. It starts the I2C bus and the MPU-6050, calibrates it and
+ *   reads it in its own FreeRTOS task every 10 ms. The data (acceleration
+ *   in g and angular velocity in deg/s) is saved in the global state.
+ *   In simulation mode the sensor is not used.
+ *
+ * Functions:
+ *   - imu_check_stable_for_arming(): checks if the drone is still and level, so it is safe to arm.
+ *   - imu_sample_and_filter(): reads the sensor and saves the data in the global state.
+ *   - imu_task(): FreeRTOS task that reads the IMU periodically.
+ *   - imu_init(): starts the I2C bus, the sensor, the calibration and the task.
+ *   - imu_test(): checks that the module started correctly.
  */
+
 #include "imu.h"
 #include <math.h>
 #include <string.h>
@@ -44,25 +57,27 @@ esp_err_t imu_check_stable_for_arming(imu_arm_state_t *state) {
     }
 
     for (int i = 0; i < IMU_ARM_CHECK_SAMPLES; i++) {
-        IMU sample;
-        esp_err_t ret = get_imu_data(&sample);
-        if (ret != ESP_OK) {
-            return ret;
-        }
+        // Last sample of the global state (g and deg/s), written by imu_task
+        vec3_t acc, vel;
+        get_acc_lin(&acc);
+        get_vel_ang(&vel);
 
-        float gyro_mag = sqrtf(sample.Vel_ang_X * sample.Vel_ang_X +
-                                sample.Vel_ang_Y * sample.Vel_ang_Y +
-                                sample.Vel_ang_Z * sample.Vel_ang_Z);
+        float gyro_mag = sqrtf(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
         if (gyro_mag > IMU_ARM_MAX_GYRO_DPS) {
             *state = IMU_ARM_STATE_MOVING;
             return ESP_OK;
         }
 
-        float accel_mag = sqrtf(sample.Acc_lin_X * sample.Acc_lin_X +
-                                 sample.Acc_lin_Y * sample.Acc_lin_Y +
-                                 sample.Acc_lin_Z * sample.Acc_lin_Z);
+        float accel_mag = sqrtf(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
         if (accel_mag < IMU_ARM_ACCEL_MIN_G || accel_mag > IMU_ARM_ACCEL_MAX_G) {
             *state = IMU_ARM_STATE_ACCEL_ABNORMAL;
+            return ESP_OK;
+        }
+
+        // Angle between the gravity and the Z axis of the drone
+        float tilt_deg = acosf(acc.z / accel_mag) / DEG_TO_RAD;
+        if (tilt_deg > IMU_ARM_MAX_TILT_DEG) {
+            *state = IMU_ARM_STATE_TILTED;
             return ESP_OK;
         }
 
@@ -76,14 +91,14 @@ esp_err_t imu_check_stable_for_arming(imu_arm_state_t *state) {
 
 static void imu_sample_and_filter(void)
 {
-    esp_err_t ret;
-    int16_t accel_x, accel_y, accel_z;
-    int16_t gyro_x, gyro_y, gyro_z;
-    float accel_lin_x, accel_lin_y, accel_lin_z;
-    float vel_ang_x, vel_ang_y, vel_ang_z;
-    int64_t t_stamp;
-
     #ifndef CONFIG_SIMULATION_ON
+        esp_err_t ret;
+        int16_t accel_x, accel_y, accel_z;
+        int16_t gyro_x, gyro_y, gyro_z;
+        float accel_lin_x, accel_lin_y, accel_lin_z;
+        float vel_ang_x, vel_ang_y, vel_ang_z;
+        int64_t t_stamp;
+
         // Get the data from the sensor
         ret = mpu6050_read_raw_data(I2C_MASTER_NUM,
                                     &accel_x, &accel_y, &accel_z,

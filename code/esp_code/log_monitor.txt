@@ -1,0 +1,125 @@
+Executing action: monitor
+Running idf_monitor in directory /home/rui/uni/TFG/ESP-Micro_drone/code/esp_code
+Executing "/home/rui/.espressif/python_env/idf5.2_py3.12_env/bin/python /home/rui/esp-idf/tools/idf_monitor.py -p /dev/ttyACM0 -b 115200 --toolchain-prefix xtensa-esp32s2-elf- --target esp32s2 --revision 0 /home/rui/uni/TFG/ESP-Micro_drone/code/esp_code/build/esp_code.elf -m '/home/rui/.espressif/python_env/idf5.2_py3.12_env/bin/python' '/home/rui/esp-idf/tools/idf.py'"...
+[0;32mI (245) main_task: Started on CPU0[0m[0;32mI (245) ma[0;32mI (745) gpio: GPIO[15]| InputEn: 0| OutputEn: 1| OpenDrai[0;32mI (4395) ATTITUDE: H = 0.000000[0m
+[0;32mI (4405) ATTITUDE: H error = 0.000000[0m
+[1;31mE (4455) wifi:NAN WiFi stop[0m
+[0;32mI (4455) wifi:flush txq[0m
+[0;32mI (4455) wifi:stop sw txq[0m
+[0;32mI (4455) wifi:lmac stop hw txq[0m
+[0;32mI (30) boot: ESP-IDF v5.2-dirty 2nd stage bootloader[0m
+[0;32mI (31) boot: compile time Oct  6 2026 12:15:13[0m
+[0;32mI (31) boot: chip revision: v1.0[0m
+[0;32mI (31) boot.esp32s2: SPI Speed      : 80MHz[0m
+[0;32mI (31) boot.esp32s2: SPI Mode       : DIO[0m
+[0;32mI (31) boot.esp32s2: SPI Flash Size : 2MB[0m
+[0;32mI (31) boot: Enabling RNG early entropy source...[0m
+[0;32mI (31) boot: Partition Table:[0m
+[0;32mI (32) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (33) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m
+[0;32mI (34) boot:  1 phy_init         RF data          01 01 0000f000 00001000[0m
+[0;32mI (35) boot:  2 factory          factory app      00 00 00010000 00100000[0m
+[0;32mI (36) boot: End of partition table[0m
+[0;32mI (36) esp_image: segment 0: paddr=00010020 vaddr=3f000020 size=245b0h (148912) map[0m
+[0;32mI (67) esp_image: segment 1: paddr=000345d8 vaddr=3ffc85d0 size=06d44h ( 27972) load[0m
+[0;32mI (73) esp_image: segment 2: paddr=0003b324 vaddr=40024000 size=04cf4h ( 19700) load[0m
+[0;32mI (78) esp_image: segment 3: paddr=00040020 vaddr=40080020 size=92a98h (600728) map[0m
+[0;32mI (198) esp_image: segment 4: paddr=000d2ac0 vaddr=40028cf4 size=0f8d0h ( 63696) load[0m
+[0;32mI (225) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (226) boot: Disabling RNG early entropy source...[0m
+[0;32mI (247) main_task: Started on CPU0[0m
+[0;32mI (247) main_task: Calling app_main()[0m
+[0;32mI (247) main_task: Returned from app_main()[0m
+[0;32mI (747) gpio: GPIO[15]| InputEn: 0| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m
+[0;32mI (757) gpio: GPIO[7]| InputEn: 0| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m
+[0;32mI (767) gpio: GPIO[8]| InputEn: 0| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m
+[0;32mI (777) gpio: GPIO[9]| InputEn: 0| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m
+[0;32mI (1877) ATTITUDE: H = 0.000000[0m
+[0;32mI (1877) ATTITUDE: H error = 0.000000[0m
+[0;32mI (1977) ATTITUDE: H = 0.000000[0m
+[0;32mI (1977) ATTITUDE: H error = 0.000000[0m
+[0;32mI (2077) ATTITUDE: H = 0.000000[0m
+[0;32mI (2077) ATTITUDE: H error = 0.000000[0m
+[0;32mI (2177) ATTITUDE: H = 0.000000[0m
+[0;32mI (2177) ATTITUDE: H error = 0.000000[0m
+[0;32mI (2277) ATTITUDE: H = 0.000000[0m
+[0;32mI (2277) ATTITUDE: H error = 0.000000[0m
+[0;32mI (2297) wifi:wifi driver task: 3ffe2944, prio:23, stack:6656, core=0[0m
+[0;32mI (2307) wifi:wifi firmware version: cc1dd81[0m
+[0;32mI (2307) wifi:wifi certification version: v7.0[0m
+[0;32mI (2307) wifi:config NVS flash: enabled[0m
+[0;32mI (2307) wifi:config nano formating: disabled[0m
+[0;32mI (2307) wifi:Init data frame dynamic rx buffer num: 32[0m
+[0;32mI (2307) wifi:Init static rx mgmt buffer num: 5[0m
+[0;32mI (2307) wifi:Init management short buffer num: 32[0m
+[0;32mI (2307) wifi:Init dynamic tx buffer num: 32[0m
+[0;32mI (2307) wifi:Init static rx buffer size: 1600[0m
+[0;32mI (2307) wifi:Init static rx buffer num: 10[0m
+[0;32mI (2317) wifi:Init dynamic rx buffer num: 32[0m
+[0;32mI (2317) wifi_init: rx ba win: 6[0m
+[0;32mI (2317) wifi_init: tcpip mbox: 32[0m
+[0;32mI (2317) wifi_init: udp mbox: 6[0m
+[0;32mI (2317) wifi_init: tcp mbox: 6[0m
+[0;32mI (2317) wifi_init: tcp tx win: 5760[0m
+[0;32mI (2317) wifi_init: tcp rx win: 5760[0m
+[0;32mI (2317) wifi_init: tcp mss: 1440[0m
+[0;32mI (2317) wifi_init: WiFi IRAM OP enabled[0m
+[0;32mI (2317) wifi_init: WiFi RX IRAM OP enabled[0m
+[0;32mI (2317) phy_init: phy_version 2401,2a6dc26,Sep 26 2023,11:22:15[0m
+[0;32mI (2367) wifi:mode : sta (80:65:99:e2:96:ea)[0m
+[0;32mI (2367) wifi:enable tsf[0m
+[0;32mI (2377) wifi:new:<10,0>, old:<1,0>, ap:<255,255>, sta:<10,0>, prof:1[0m
+[0;32mI (2387) wifi:state: init -> auth (b0)[0m
+[0;32mI (2387) wifi:state: auth -> assoc (0)[0m
+[0;32mI (2417) ATTITUDE: H = 0.000000[0m
+[0;32mI (2417) ATTITUDE: H error = 0.000000[0m
+[0;32mI (2417) wifi:state: assoc -> run (10)[0m
+[0;32mI (2437) wifi:connected with Rui, aid = 21, channel 10, BW20, bssid = ba:ab:b5:86:a9:16[0m
+[0;32mI (2447) wifi:security: WPA2-PSK, phy: bgn, rssi: -45[0m
+[0;32mI (2447) wifi:pm start, type: 1[0m
+
+[0;32mI (2447) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us[0m
+[0;32mI (2457) wifi:<ba-add>idx:0 (ifx:0, ba:ab:b5:86:a9:16), tid:0, ssn:3, winSize:64[0m
+[0;32mI (2487) wifi:dp: 2, bi: 102400, li: 4, scale listen interval from 307200 us to 409600 us[0m
+[0;32mI (2497) wifi:AP's beacon interval = 102400 us, DTIM period = 2[0m
+[0;32mI (2517) ATTITUDE: H = 0.000000[0m
+[0;32mI (2517) ATTITUDE: H error = 0.000000[0m
+[0;32mI (2617) ATTITUDE: H = 0.000000[0m
+[0;32mI (2617) ATTITUDE: H error = 0.000000[0m
+[0;32mI (2717) ATTITUDE: H = 0.000000[0m
+[0;32mI (2717) ATTITUDE: H error = 0.000000[0m
+[0;32mI (2817) ATTITUDE: H = 0.000000[0m
+[0;32mI (2817) ATTITUDE: H error = 0.000000[0m
+[0;32mI (2917) ATTITUDE: H = 0.000000[0m
+[0;32mI (2917) ATTITUDE: H error = 0.000000[0m
+[0;32mI (3017) ATTITUDE: H = 0.000000[0m
+[0;32mI (3017) ATTITUDE: H error = 0.000000[0m
+[0;32mI (3117) ATTITUDE: H = 0.000000[0m
+[0;32mI (3117) ATTITUDE: H error = 0.000000[0m
+[0;32mI (3217) ATTITUDE: H = 0.000000[0m
+[0;32mI (3217) ATTITUDE: H error = 0.000000[0m
+[0;32mI (3267) wifi:<ba-add>idx:1 (ifx:0, ba:ab:b5:86:a9:16), tid:6, ssn:2, winSize:64[0m
+[0;32mI (3317) ATTITUDE: H = 0.000000[0m
+[0;32mI (3317) ATTITUDE: H error = 0.000000[0m
+[0;32mI (3417) ATTITUDE: H = 0.000000[0m
+[0;32mI (3417) ATTITUDE: H error = 0.000000[0m
+[0;32mI (3457) esp_netif_handlers: sta ip: 10.167.216.224, mask: 255.255.255.0, gw: 10.167.216.206[0m
+[0;32mI (3467) wifi:Set ps type: 0, coexist: 0[0m
+
+[0;32mI (3517) ATTITUDE: H = 0.000000[0m
+[0;32mI (3517) ATTITUDE: H error = 0.000000[0m
+[0;32mI (3617) ATTITUDE: H = 0.000000[0m
+[0;32mI (3617) ATTITUDE: H error = 0.000000[0m
+[0;32mI (3717) ATTITUDE: H = 0.000000[0m
+[0;32mI (3717) ATTITUDE: H error = 0.000000[0m
+[0;32mI (3817) ATTITUDE: H = 0.000000[0m
+[0;32mI (3817) ATTITUDE: H error = 0.000000[0m
+[0;32mI (3877) MICRO_ROS: Executor ready. Service valid=1[0m
+[0;32mI (3917) ATTITUDE: H = 0.007927[0m
+[0;32mI (3917) ATTITUDE: H error = -0.007927[0m
+[0;32mI (4017) ATTITUDE: H = 0.007927[0m
+[0;32mI (4017) ATTITUDE: H error = -0.007927[0m
+[0;32mI (4117) ATTITUDE: H = 0.007927[0m
+[0;32mI (4117) ATTITUDE: H error = -0.007927[0m
+[0;32mI (4217) ATTITUDE: H = 0.007927[0m
+[0;32mI (4217) ATTITUDE: H error = -0.007927[0m

@@ -2,12 +2,24 @@
  * Made by Rui B.S.
  * Date: 19/07/2026
  * email: rui.bartolome@gmail.com
+ *
+ * Description:
+ *   Driver for the 4 motors of the drone. On the real drone it drives the
+ *   motors with PWM (LEDC, 20 kHz). In simulation mode it publishes the
+ *   motor speeds to ROS 2 instead. The motors only move when the drone is
+ *   armed, and the power is always limited to the maximum value.
+ *
+ * Functions:
+ *   - arm_motors() / disarm_motors(): allows or blocks the motors.
+ *   - set_motor_speed(): sets the power of the 4 motors.
+ *   - motors_stop_all(): stops all the motors.
+ *   - motors_init(): configures the PWM timer and channels.
+ *   - motors_test(): spins the motors to check them.
  */
 
 #include <stdbool.h>
 
 #include "motors.h"
-#include "ros_coordinator.h"
 #include "ros_coordinator.h"
 
 #include "driver/ledc.h"
@@ -17,18 +29,21 @@
 
 #include "esp_log.h"
 
-static const char *TAG = "MOTOR";
+static const char *TAG  = "MOTOR";
 
 static bool drone_armed = false;
 
-static bool is_init = false;
-static bool is_testing = false;
+static bool is_init     = false;
+static bool is_testing  = false;
 
 // GPIO pin and LEDC channel are just used with real drone, no simulation
 #ifdef CONFIG_SIMULATION_ON
-    #define TEST_VAL 2387
+    #define TEST_POWER  2390
+    #define MAX_POWER   4000
 #else
-    #define TEST_VAL 100
+    #define MAX_POWER   100
+    #define TEST_POWER  100
+
     static const gpio_num_t motor_gpio[N_MOTORS] = {
         motor_1,
         motor_2,
@@ -44,55 +59,51 @@ static bool is_testing = false;
     };
 #endif
 
-void arm_motors() {
-    drone_armed = true;
-}
-
-void disarm_motors() {
-    drone_armed = false;
-}
-
-void set_motor_speed(double power[N_MOTORS]) {
-    if (is_testing) return;
-    // When drone is disarmed, the motors doesn't work
-    if (!drone_armed) {
-        for (int x = 0; x < N_MOTORS; x++) {
-            power[x] = 0;
-        }
+static double limit_power(double power, double max) {
+    if (!(power > 0.0)) {   // also true for NaN
+        return 0.0;
     }
+    if (power > max) {
+        return max;
+    }
+    return power;
+}
 
-    // With simulation pass the motor speed to ROS2 pub
+static void write_motors(const double power[N_MOTORS]) {
     #ifdef CONFIG_SIMULATION_ON
         pub_motor_speed(power);
-
     #else
+        const uint32_t max_duty = (1u << LEDC_DUTY_RES) - 1;
         for (int x = 0; x < N_MOTORS; x++) {
-            uint8_t spd_percent[N_MOTORS] = power; // TODO Cambiar necesito modelo real
-
-            // Clamp motor spdeed
-            if (spd_percent[x] > 100) {
-                spd_percent[x] = 100;
-            }
-            uint32_t duty = (spd_percent[x] * ((1 << LEDC_DUTY_RES) - 1)) / 100;
+            uint32_t duty = (uint32_t)(power[x] * max_duty / 100.0);
             ledc_set_duty(LEDC_MODE, motor_channel[x], duty);
             ledc_update_duty(LEDC_MODE, motor_channel[x]);
         }
     #endif
 }
 
+void arm_motors(void) {
+    drone_armed = true;
+}
+
+void disarm_motors(void) {
+    drone_armed = false;
+}
+
+void set_motor_speed(double power[N_MOTORS]) {
+    if (is_testing) return;
+
+    for (int x = 0; x < N_MOTORS; x++) {
+        // When drone is disarmed, the motors doesn't work
+        power[x] = drone_armed ? limit_power(power[x], MAX_POWER) : 0.0;
+    }
+
+    write_motors(power);
+}
+
 void motors_stop_all(void) {
-    // With simulation pass the motor speed to ROS2 pub
-    #ifdef CONFIG_SIMULATION_ON
-        double power[N_MOTORS] = {0};
-        pub_motor_speed(power);
-
-    #else
-        for (int i = 0; i < N_MOTORS; i++) {
-            ledc_set_duty(LEDC_MODE, motor_channel[i], 0);
-            ledc_update_duty(LEDC_MODE, motor_channel[i]);
-        }
-    #endif
-
+    const double power[N_MOTORS] = {0};
+    write_motors(power);
 }
 
 void motors_init(void) {
@@ -136,19 +147,19 @@ bool motors_test(void) {
     is_testing = true;
     
     ESP_LOGI(TAG, "Empieza test");
-    double power[N_MOTORS];
+    double power[N_MOTORS] = {0};
     
     for (int x = 0; x < N_MOTORS; x++) {
         ESP_LOGI(TAG, "Motor %d", x);
-        for (int vel = 0; vel <= TEST_VAL/2; vel = vel + 50) {
+        for (int vel = 0; vel <= TEST_POWER/2; vel = vel + 50) {
             power[x] = vel;
-            pub_motor_speed(power);
+            write_motors(power);
             vTaskDelay(pdMS_TO_TICKS(150));
         }
         ESP_LOGI(TAG, "MAX POWER");
-        for (int vel = TEST_VAL/2; vel >= 0; vel = vel - 100) {
+        for (int vel = TEST_POWER/2; vel >= 0; vel = vel - 100) {
             power[x] = vel;
-            pub_motor_speed(power);
+            write_motors(power);
             vTaskDelay(pdMS_TO_TICKS(150));
         }
         power[x] = 0;

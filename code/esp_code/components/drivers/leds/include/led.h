@@ -1,3 +1,18 @@
+/**
+ * Made by Rui B.S.
+ * Date: 23/05/2026
+ * email: rui.bartolome@gmail.com
+ *
+ * Description:
+ *   Public interface, pins and LED ids of the LED driver.
+ *
+ * Functions:
+ *   - led_init(): configures the LED GPIOs.
+ *   - led_test(): turns all the LEDs on and off to check them.
+ *   - led_on() / led_off(): turns one LED on or off.
+ *   - all_on() / all_off(): turns all the LEDs on or off.
+ */
+
 #ifndef LED_H
 #define LED_H
 

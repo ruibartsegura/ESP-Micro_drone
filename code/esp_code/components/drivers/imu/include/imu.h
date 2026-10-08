@@ -1,3 +1,18 @@
+/**
+ * Made by Rui B.S.
+ * Date: 23/05/2026
+ * email: rui.bartolome@gmail.com
+ *
+ * Description:
+ *   Public interface and data types of the IMU module, and the limits used
+ *   to decide if the drone is stable enough to arm.
+ *
+ * Functions:
+ *   - imu_init(): starts the I2C bus, the sensor, the calibration and the task.
+ *   - imu_test(): checks that the module started correctly.
+ *   - imu_check_stable_for_arming(): checks if the drone is still and level, so it is safe to arm.
+ */
+
 #ifndef IMU_H
 #define IMU_H
 
@@ -38,9 +53,6 @@ typedef struct imu_data {
 void imu_init(void);
 
 bool imu_test(void);
-
-esp_err_t get_imu_data(IMU *data);
-
 
 // ---- Comprobación de estabilidad previa al armado ----
 

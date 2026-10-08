@@ -1,13 +1,19 @@
-/*
- * bmp180_internal.h
+/**
+ * Made by Rui B.S.
+ * Date: 01/10/2026
+ * email: rui.bartolome@gmail.com
  *
- * Declaraciones SOLO para tests. No forman parte de la API publica del
- * driver (bmp180.h no las expone) -- son los pasos internos de compensacion
- * de la Figura 4 del datasheet Bosch BMP180, separados de la lectura I2C
- * para poder testearlos sin sensor fisico ni ESP32 conectado.
+ * Description:
+ *   Declarations ONLY for tests. They are not part of the public API of the
+ *   driver. They are the internal compensation steps of Figure 4 of the
+ *   Bosch BMP180 datasheet, split from the I2C reading so they can be tested
+ *   without the sensor. Include it only from test/test_bmp180.c, never from
+ *   application code.
  *
- * No incluir este header desde codigo de aplicacion (height.c, main.c...),
- * solo desde test/test_bmp180.c.
+ * Functions:
+ *   - bmp180_compute_b5(): step 1, computes the B5 value.
+ *   - bmp180_compensate_temperature(): step 2a, compensated temperature (C).
+ *   - bmp180_compensate_pressure(): step 2b, compensated pressure (Pa).
  */
 
 #ifndef BMP180_INTERNAL_H

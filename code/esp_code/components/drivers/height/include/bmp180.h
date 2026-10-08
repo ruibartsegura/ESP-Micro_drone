@@ -1,12 +1,19 @@
-/*
- * bmp180.h
+/**
+ * Made by Rui B.S.
+ * Date: 25/09/2026
+ * email: rui.bartolome@gmail.com
  *
- * Driver minimo para el sensor de presion/temperatura BMP180 sobre I2C,
- * pensado para ESP32-S2 con ESP-IDF (driver I2C "legacy": driver/i2c.h).
+ * Description:
+ *   Public interface of the BMP180 driver (pressure and temperature over
+ *   I2C, legacy ESP-IDF driver). The drone uses the GY-87 board, which has
+ *   a BMP180, an MPU6050 and an HMC5883L. This driver only covers the
+ *   pressure and temperature part.
  *
- * Pensado para el proyecto de micro-dron: el GY-87 trae un BMP180 (ademas
- * del MPU6050 y el HMC5883L), asi que este driver solo cubre la parte
- * de presion/temperatura del modulo.
+ * Functions:
+ *   - bmp180_init(): checks the chip id and reads the calibration coefficients.
+ *   - bmp180_read_temperature(): returns the compensated temperature (C).
+ *   - bmp180_read_pressure(): returns the compensated pressure (Pa).
+ *   - bmp180_pressure_to_altitude(): converts pressure to altitude (m).
  */
 
 #ifndef BMP180_H
@@ -72,9 +79,9 @@ esp_err_t bmp180_read_pressure(bmp180_t *dev, int32_t *pressure_pa);
 /**
  * @brief Calcula la altitud aproximada en metros a partir de la presion
  *        medida y una presion de referencia a nivel del mar (por defecto
- *        101325 Pa).
+ *        101325 Pa). Devuelve NaN si la presion es <= 0.
  */
-float bmp180_pressure_to_altitude(int32_t pressure_pa, float sea_level_pa);
+float bmp180_pressure_to_altitude(float pressure_pa, float sea_level_pa);
 
 #ifdef __cplusplus
 }

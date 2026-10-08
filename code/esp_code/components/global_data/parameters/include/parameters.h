@@ -1,3 +1,17 @@
+/**
+ * Made by Rui B.S.
+ * Date: 28/06/2026
+ * email: rui.bartolome@gmail.com
+ *
+ * Description:
+ *   Public interface of the flight parameters.
+ *
+ * Functions:
+ *   - set_hovering_h() / get_hovering_h(): hovering height.
+ *   - set_max_velocity() / get_max_velocity(): maximum velocity.
+ *   - set_land_on_site() / get_land_on_site(): land-on-site mode.
+ */
+
 #ifndef PARAMETERS_H
 #define PARAMETERS_H
 

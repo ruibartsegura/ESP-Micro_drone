@@ -1,3 +1,21 @@
+/**
+ * Made by Rui B.S.
+ * Date: 23/05/2026
+ * email: rui.bartolome@gmail.com
+ *
+ * Description:
+ *   Public interface of the micro-ROS coordinator. Other modules use it
+ *   to read the commands that arrive from ROS 2.
+ *
+ * Functions:
+ *   - ros_init(): starts the network interface and the micro-ROS task.
+ *   - ros_test(): checks that the module started correctly.
+ *   - get_take_off_ready(): returns true if a take-off request was accepted.
+ *   - get_take_off_alt(): returns the requested take-off altitude.
+ *   - get_cmd_vel(): returns the last velocity command.
+ *   - pub_motor_speed(): (simulation) publishes the motor speeds.
+ */
+
 #ifndef ROS_COORDINATOR_H
 #define ROS_COORDINATOR_H
 

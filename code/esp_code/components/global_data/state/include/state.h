@@ -1,3 +1,19 @@
+/**
+ * Made by Rui B.S.
+ * Date: 28/06/2026
+ * email: rui.bartolome@gmail.com
+ *
+ * Description:
+ *   Data types (vectors, quaternion, drone state and state machine states)
+ *   and public interface of the global state.
+ *
+ * Functions:
+ *   - state_init(): resets the state.
+ *   - set_*(): save one value of the state.
+ *   - get_*(): read one value of the state.
+ *   - get_global_state(): returns a copy of the whole state.
+ */
+
 #ifndef STATE_H
 #define STATE_H
 
