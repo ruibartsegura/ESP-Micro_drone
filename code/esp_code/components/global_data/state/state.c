@@ -33,7 +33,7 @@ void state_init(void) {
     memset(&sm_state, 0, sizeof(sm_state));
 
     memset(&state, 0, sizeof(state));
-    state.q.w = 1.0f; 
+    state.q.w = 1.0f;
     portEXIT_CRITICAL(&s_lock);
 }
 

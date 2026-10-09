@@ -12,7 +12,8 @@
  *     3. Outer loop: cmd_vel_2_RP() (velocity -> target roll / pitch).
  *     4. Inner loop: angular rate -> motor mix (roll / pitch / yaw).
  *     5. Height: collective thrust and check_h_reached().
- *     6. Task and init.
+ *     6. Height estimation: get_h() (accelerometer + barometer).
+ *     7. Task and init.
  *
  *   The real state.c is linked (the controller reads the IMU and the
  *   height from the global state). get_attitude() (system.c) and
@@ -38,9 +39,11 @@
  * Functions:
  *   - get_attitude(), set_motor_speed(): mocks of system.c and motors.c.
  *   - decompose(): splits the 4 motor values into h, r, p, y.
- *   - set_tilt(), step(): helpers to prepare the IMU and run the controller.
+ *   - set_tilt(), step(), settle(): helpers to prepare the IMU and run the
+ *     controller.
  *   - setUp() / tearDown(): reset the mocks, the controller and the state.
- *   - test_comp_*, test_est_*, test_ext_*, test_int_*, test_h_*, test_task_*.
+ *   - test_comp_*, test_est_*, test_ext_*, test_int_*, test_h_*, test_hest_*,
+ *     test_task_*.
  *   - main(): runs all the tests.
  */
 #include "unity.h"
@@ -111,6 +114,12 @@ static void step(void) {
     control_attitude();
 }
 
+/* n control cycles: lets the height filter converge to the barometer. */
+#define SETTLE_STEPS 600   /* 9 s */
+static void settle(void) {
+    for (int i = 0; i < SETTLE_STEPS; i++) step();
+}
+
 /* One control cycle with the same IMU timestamp: dt = 0, no gyro integration. */
 static void step_same_time(void) {
     set_time_imu(last_rpy.t_stamp);
@@ -126,6 +135,12 @@ void setUp(void) {
     memset(&last_rpy, 0, sizeof last_rpy);
     err_h = 0.0f;
     t_now = 1000000000LL;   /* 1 s */
+    /* Height filter already started, with the ground at 0 m */
+    h_init = true;
+    h0 = 0.0f;
+    h_est = 0.0f;
+    last_vel_Z = 0.0f;
+    last_t_h = t_now;
     last_rpy.t_stamp = t_now;
     set_time_imu(t_now);
     set_tilt(0, 0);         /* level, +1 g on Z */
@@ -397,7 +412,7 @@ void test_int_level_and_still_all_motors_are_equal(void) {
 void test_int_at_target_height_motors_get_the_hover_throttle(void) {
     set_h(0.5f);
     mock_target.h = 0.5f;
-    step();
+    settle();
     for (int i = 0; i < N_MOTORS; i++)
         TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1.0, BASE, motors[i], "hover needs throttle_base on every motor");
 }
@@ -514,33 +529,33 @@ void test_int_no_error_when_the_tilt_is_the_target(void) {
 void test_h_below_target_more_thrust(void) {
     mock_target.h = 1.0f;
     set_h(1.0f);
-    step();
+    settle();
     double at = decompose().h;
     set_h(0.5f);
-    step();
+    settle();
     TEST_ASSERT_TRUE(decompose().h > at);
 }
 
 void test_h_above_target_less_thrust(void) {
     mock_target.h = 1.0f;
     set_h(1.0f);
-    step();
+    settle();
     double at = decompose().h;
     set_h(1.5f);
-    step();
+    settle();
     TEST_ASSERT_TRUE(decompose().h < at);
 }
 
 void test_h_thrust_is_proportional_to_the_error(void) {
     mock_target.h = 1.0f;
     set_h(1.0f);
-    step();
+    settle();
     double at = decompose().h;
     set_h(0.8f);
-    step();
+    settle();
     double d1 = decompose().h - at;
     set_h(0.6f);
-    step();
+    settle();
     double d2 = decompose().h - at;
     TEST_ASSERT_DOUBLE_WITHIN(1e-3, 2.0 * d1, d2);
 }
@@ -548,43 +563,125 @@ void test_h_thrust_is_proportional_to_the_error(void) {
 void test_h_error_is_saved(void) {
     mock_target.h = 1.0f;
     set_h(0.7f);
-    step();
+    settle();
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.3f, err_h);
 }
 
 void test_h_reached_at_the_target(void) {
     mock_target.h = 1.0f;
     set_h(1.0f);
-    step();
+    settle();
     TEST_ASSERT_TRUE(check_h_reached());
 }
 
 void test_h_reached_inside_1_cm(void) {
     mock_target.h = 1.0f;
     set_h(0.995f);
-    step();
+    settle();
     TEST_ASSERT_TRUE(check_h_reached());
 }
 
 void test_h_not_reached_outside_1_cm(void) {
     mock_target.h = 1.0f;
     set_h(0.97f);
-    step();
+    settle();
     TEST_ASSERT_FALSE(check_h_reached());
     set_h(1.03f);
-    step();
+    settle();
     TEST_ASSERT_FALSE(check_h_reached());
 }
 
 void test_h_not_reached_far_away(void) {
     mock_target.h = 2.0f;
     set_h(0.0f);
-    step();
+    settle();
     TEST_ASSERT_FALSE(check_h_reached());
 }
 
 /* ------------------------------------------------------------------ */
-/*                           6. TASK / INIT                           */
+/*                        6. HEIGHT ESTIMATION                        */
+/* ------------------------------------------------------------------ */
+void test_hest_waits_for_the_first_barometer_sample(void) {
+    h_init = false;
+    set_h(600.0f);          /* no barometer time yet */
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, get_h(0, 0));
+    TEST_ASSERT_FALSE(h_init);
+}
+
+void test_hest_first_sample_is_the_ground(void) {
+    h_init = false;
+    set_h(600.0f);
+    set_time_height(t_now);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, get_h(0, 0));
+    TEST_ASSERT_TRUE(h_init);
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 600.0f, h0);
+}
+
+void test_hest_height_is_relative_to_the_ground(void) {
+    h_init = false;
+    set_h(600.0f);
+    set_time_height(t_now);
+    get_h(0, 0);
+    set_h(601.0f);
+    settle();
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.0f, h_est);
+}
+
+void test_hest_still_and_level_does_not_drift(void) {
+    settle();
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, h_est);
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, last_vel_Z);
+}
+
+void test_hest_still_and_tilted_does_not_drift(void) {
+    last_rpy.roll = 20.0f;
+    last_rpy.pitch = -10.0f;
+    set_tilt(20.0f, -10.0f);
+    settle();
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, h_est);
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, last_vel_Z);
+}
+
+void test_hest_converges_to_the_barometer(void) {
+    set_h(1.5f);
+    settle();
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.5f, h_est);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, last_vel_Z);
+}
+
+void test_hest_one_step_is_filtered(void) {
+    set_h(1.0f);
+    step();
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, K_H * 1.0f, h_est);
+}
+
+void test_hest_upward_acceleration_gives_upward_velocity(void) {
+    set_acc_lin(0, 0, 1.5f);   /* +0.5 g over the gravity */
+    for (int i = 0; i < 10; i++) step();
+    TEST_ASSERT_TRUE(last_vel_Z > 0.0f);
+    TEST_ASSERT_TRUE(h_est > 0.0f);
+}
+
+void test_hest_integrates_with_the_imu_time_in_s(void) {
+    /* One step of 15 ms at +1 g over the gravity, barometer still at 0 */
+    set_acc_lin(0, 0, 2.0f);
+    step_same_time();          /* dt = 0: nothing is integrated */
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, last_vel_Z);
+    step();
+    float dt = DT_NS / 1e9f;
+    float h_pred = 0.5f * K_G * dt * dt;
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, K_G * dt - K_V * h_pred, last_vel_Z);
+}
+
+void test_hest_long_dt_is_ignored(void) {
+    set_acc_lin(0, 0, 2.0f);
+    t_now += 1000000000LL;     /* 1 s without IMU data */
+    step();
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, last_vel_Z);
+}
+
+/* ------------------------------------------------------------------ */
+/*                           7. TASK / INIT                           */
 /* ------------------------------------------------------------------ */
 void test_task_init_creates_the_task_with_the_menuconfig_values(void) {
     init_attitude_controller();
@@ -670,6 +767,17 @@ int main(void) {
     RUN_TEST(test_h_reached_inside_1_cm);
     RUN_TEST(test_h_not_reached_outside_1_cm);
     RUN_TEST(test_h_not_reached_far_away);
+
+    RUN_TEST(test_hest_waits_for_the_first_barometer_sample);
+    RUN_TEST(test_hest_first_sample_is_the_ground);
+    RUN_TEST(test_hest_height_is_relative_to_the_ground);
+    RUN_TEST(test_hest_still_and_level_does_not_drift);
+    RUN_TEST(test_hest_still_and_tilted_does_not_drift);
+    RUN_TEST(test_hest_converges_to_the_barometer);
+    RUN_TEST(test_hest_one_step_is_filtered);
+    RUN_TEST(test_hest_upward_acceleration_gives_upward_velocity);
+    RUN_TEST(test_hest_integrates_with_the_imu_time_in_s);
+    RUN_TEST(test_hest_long_dt_is_ignored);
 
     RUN_TEST(test_task_init_creates_the_task_with_the_menuconfig_values);
     RUN_TEST(test_task_init_twice_creates_one_task);

@@ -85,7 +85,7 @@ void system_init(void) {
         height_init();
         vTaskDelay(pdMS_TO_TICKS(500));
     #endif
-    
+
     motors_init();
     vTaskDelay(pdMS_TO_TICKS(500));
 
@@ -121,7 +121,7 @@ bool system_test(void) {
 }
 
 
-// Change the state-machine state 
+// Change the state-machine state
 void change_state(int new_state) {
     state = new_state;
     set_sm_state(state);
@@ -153,9 +153,9 @@ void state_machine(void) {
     switch (state) {
         case INIT:
             system_init();
-            
+
             change_state(CHECKING);
-            
+
             break;
 
         case CHECKING:
@@ -265,7 +265,7 @@ void system_start(void) {
 
 // TODO
 //      Implementar get_take_off() en ros_coordinator
-// 
+//
 //      Implementar params en configuration, hacer get/set para modificarlo con ros_coordinator
 //
 //      Hacer cambios de estados...

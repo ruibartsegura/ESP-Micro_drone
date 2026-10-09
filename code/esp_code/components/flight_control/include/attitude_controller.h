@@ -38,6 +38,7 @@ typedef struct attitude_target {
 // Gains of the controller that can be changed at runtime
 typedef struct gains {
     float kp_h;        // m error -> motor power
+    float kd_h;        // m error -> motor power
     float kp_angle;    // deg error -> deg/s target
     float kp_rate;     // deg/s error -> motor power
     float max_rate;    // max target roll/pitch rate (deg/s)
@@ -50,8 +51,9 @@ bool check_h_reached();
 
 void get_gains(GAINS *out);
 
-void set_gains(const GAINS *in);
-
+#ifdef CONFIG_GAINS_TUNE_ON
+    void set_gains(const GAINS *in);
+#endif
 void control_attitude();
 
 // Start the task

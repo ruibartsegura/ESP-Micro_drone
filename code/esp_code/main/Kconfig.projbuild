@@ -254,7 +254,17 @@ menu "X-WING Config"
             bool "Simulation on"
             default n
             help
-                If simulation is on, will be some extra ROS subscribers and publisher for the sensors and motors
+                If simulation is on, will be some extra ROS subscribers and 
+                publisher to emulate the sensors and motors
+
+    endmenu
+
+    menu "Tunning"
+        config GAINS_TUNE_ON
+            bool "Gains tune on"
+            default n
+            help
+                If gains tune is on, the monitor will allow to change the gains while flying
     endmenu
 
 endmenu

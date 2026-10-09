@@ -4,6 +4,7 @@
 #  make test               build and run every test, and print a summary
 #  make run T=motors_sim   build and run one test with the full Unity output
 #  make list               list the available tests
+#  make style              style test (4 spaces, "{" in the same line, snake_case)
 #  make clean
 #
 #  Options:
@@ -153,7 +154,10 @@ run:
 list:
 	@for t in $(TESTS); do echo $$t; done
 
+style:
+	@python3 style_check.py
+
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: test run list clean
+.PHONY: test run list style clean

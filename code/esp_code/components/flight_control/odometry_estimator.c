@@ -61,7 +61,7 @@ void odom_estimator_init(void) {
     }
 
     xTaskCreate(odom_task, "odom_task", CONFIG_ODOM_TASK_STACK, NULL, CONFIG_ODOM_TASK_PRIO, NULL);
-    
+
 
     is_init = true;
 }

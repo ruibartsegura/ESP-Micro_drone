@@ -45,7 +45,7 @@ void led_init(void) {
     if (is_init) {
         return;
     }
-    
+
     for (int x = 0; x < N_LEDS; x++) {
         gpio_config_t io_conf = {
             //bit mask of the pins that you want to set,e.g.GPIO18/19
@@ -72,7 +72,7 @@ bool led_test(void) {
     }
 
     // ESP_LOGI(TAG, "Empieza test");
-    
+
     int before[N_LEDS];
     for (int x = 0; x < N_LEDS; x++) {
         before[x] = led_status[x];
@@ -81,14 +81,14 @@ bool led_test(void) {
     for (int x = 0; x < N_LEDS; x++) {
         gpio_set_level(led_pin[x], 1);
         vTaskDelay(pdMS_TO_TICKS(250));
-        
+
         gpio_set_level(led_pin[x], 0);
         vTaskDelay(pdMS_TO_TICKS(250));
 
         gpio_set_level(led_pin[x], 1);
         vTaskDelay(pdMS_TO_TICKS(250));
     }
-    
+
     // ESP_LOGI(TAG, "Termina test");
     all_off();
 

@@ -85,30 +85,25 @@
     vTaskDelete(NULL);}}
 
 #define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){ \
-        printf("Failed status on line %d: %d. Continuing.\n",__LINE__,(int)temp_rc);}}
+    printf("Failed status on line %d: %d. Continuing.\n",__LINE__,(int)temp_rc);}}
 
 static const char *TAG = "MICRO_ROS";
 
 // ============================================================
 //                       Parameters
 // ============================================================
-
 #ifdef CONFIG_SIMULATION_ON
-        #include "freertos/queue.h"
-        #include <actuator_msgs/msg/actuators.h>
-        #include <sensor_msgs/msg/fluid_pressure.h>
-        #include "bmp180.h" // To transform the receiving barometer pressure to h(m)
+    #include "freertos/queue.h"
+    #include <actuator_msgs/msg/actuators.h>
+    #include <sensor_msgs/msg/fluid_pressure.h>
+    #include "bmp180.h" // To transform the receiving barometer pressure to h(m)
 
-        #define N_HANDLERS 8 // 5 Default + 2 for new subs(IMU, Height)
+    #define N_HANDLERS 8 // 5 Default + 2 for new subs(IMU, Height)
 
 #else
     #define N_HANDLERS 5
 #endif
 
-
-// ============================================================
-//                       Parameters
-// ============================================================
 static const float MAX_ALT = 3.0f; // TODO PONER PARAM
 static const float MIN_ALT = 0.5f;
 
@@ -380,18 +375,18 @@ void fill_imu_msg(sensor_msgs__msg__Imu * out) {
 
     // Motors
     void motors_msg_init(void) {
-       actuator_msgs__msg__Actuators__init(&motors_msg);  // opcional, pero deja todo en estado válido
+        actuator_msgs__msg__Actuators__init(&motors_msg);  // opcional, pero deja todo en estado válido
 
-       motors_msg.velocity.data     = motors_buf;
-       motors_msg.velocity.size     = NUM_MOTORS;
-       motors_msg.velocity.capacity = NUM_MOTORS;
+        motors_msg.velocity.data     = motors_buf;
+        motors_msg.velocity.size     = NUM_MOTORS;
+        motors_msg.velocity.capacity = NUM_MOTORS;
 
-       motors_msg.header.frame_id.data     = frame_id_buf;
-       motors_msg.header.frame_id.size     = strlen(frame_id_buf);
-       motors_msg.header.frame_id.capacity = sizeof(frame_id_buf);
+        motors_msg.header.frame_id.data     = frame_id_buf;
+        motors_msg.header.frame_id.size     = strlen(frame_id_buf);
+        motors_msg.header.frame_id.capacity = sizeof(frame_id_buf);
 
         motors_q = xQueueCreate(1, sizeof(motors_cmd_t));
-    }   
+    }
 
     // Update value for the motors
     void pub_motor_speed(const double power[NUM_MOTORS]) {
@@ -409,14 +404,14 @@ void fill_imu_msg(sensor_msgs__msg__Imu * out) {
 
         // ESP_LOGI(TAG, "VEL LLEGA");
         if (timer == NULL || !motors_pub_ready) return;
-        
+
         if (xQueueReceive(motors_q, &cmd, 0) != pdTRUE) return;  // nada nuevo
         // ESP_LOGI(TAG, "VEL PASA");
 
         int64_t now_us = esp_timer_get_time();
         for (int i = 0; i < NUM_MOTORS; i++) {
             motors_msg.velocity.data[i] = cmd.v[i];
-            
+
         }
         motors_msg.header.stamp.sec     = (int32_t)(now_us / 1000000);
         motors_msg.header.stamp.nanosec = (uint32_t)((now_us % 1000000) * 1000);
@@ -483,7 +478,7 @@ void micro_ros_task(void * arg) {
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
         "drone/imu_data"));
-    
+
     // QoS params sub
     rmw_qos_profile_t params_qos = rmw_qos_profile_default;
     params_qos.reliability  = RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT;
@@ -528,7 +523,7 @@ void micro_ros_task(void * arg) {
             RCCHECK(rclc_subscription_init(&height_sub, &node,
                 ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, FluidPressure), "barometer/data", &sim_qos));
         }
-        
+
         // Init motors pub - RELIABLE: Gazebo bridge subscriber requires RELIABLE
         {
             rmw_qos_profile_t motors_qos = rmw_qos_profile_default;
@@ -554,7 +549,7 @@ void micro_ros_task(void * arg) {
     // Add everything to the executor, the order matter
     rclc_executor_t executor;
     RCCHECK(rclc_executor_init(&executor, &support.context, N_HANDLERS, &allocator));
-    
+
     RCCHECK(rclc_executor_add_timer(&executor, &timer));
 
     RCCHECK(rclc_executor_add_service(&executor, &takeoff_srv, &takeoff_req,
@@ -615,17 +610,17 @@ void ros_init(void) {
         return;
     }
 
-#ifdef CONFIG_SIMULATION_ON
-    motors_msg_init();
-#endif
+    #ifdef CONFIG_SIMULATION_ON
+        motors_msg_init();
+    #endif
 
-#if defined(CONFIG_MICRO_ROS_ESP_NETIF_WLAN) || defined(CONFIG_MICRO_ROS_ESP_NETIF_ENET)
-    ESP_ERROR_CHECK(uros_network_interface_initialize());
-#endif
+    #if defined(CONFIG_MICRO_ROS_ESP_NETIF_WLAN) || defined(CONFIG_MICRO_ROS_ESP_NETIF_ENET)
+        ESP_ERROR_CHECK(uros_network_interface_initialize());
+    #endif
 
-#if defined(CONFIG_MICRO_ROS_ESP_NETIF_WLAN)
-    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));   // sin ahorro de energía
-#endif
+    #if defined(CONFIG_MICRO_ROS_ESP_NETIF_WLAN)
+        ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));   // sin ahorro de energía
+    #endif
 
     xTaskCreate(micro_ros_task,
             "uros_task",

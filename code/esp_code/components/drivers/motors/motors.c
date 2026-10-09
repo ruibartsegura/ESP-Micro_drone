@@ -110,7 +110,7 @@ void motors_init(void) {
     if (is_init) {
         return;
     }
-    
+
     // With simulation no need to declare the timers for LEDC...
     #ifndef CONFIG_SIMULATION_ON
         // One timer shared for the 4 motors
@@ -122,7 +122,7 @@ void motors_init(void) {
             .clk_cfg         = LEDC_AUTO_CLK
         };
         ledc_timer_config(&timer_conf);
-        
+
         // One chanel for motor, all pointing same timer
         for (int i = 0; i < N_MOTORS; i++) {
             ledc_channel_config_t channel_conf = {
@@ -145,10 +145,10 @@ bool motors_test(void) {
         return false;
     }
     is_testing = true;
-    
+
     ESP_LOGI(TAG, "Empieza test");
     double power[N_MOTORS] = {0};
-    
+
     for (int x = 0; x < N_MOTORS; x++) {
         ESP_LOGI(TAG, "Motor %d", x);
         for (int vel = 0; vel <= TEST_POWER/2; vel = vel + 50) {
@@ -165,12 +165,12 @@ bool motors_test(void) {
         power[x] = 0;
         ESP_LOGI(TAG, "FINISH MOTOR X");
     }
-    
+
     // Make sure the motors are stopped before finish the test
     motors_stop_all();
     vTaskDelay(pdMS_TO_TICKS(150));
 
-    
+
     ESP_LOGI(TAG, "Termina test");
     is_testing = false;
     return true;
