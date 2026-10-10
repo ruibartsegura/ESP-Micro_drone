@@ -23,6 +23,8 @@
  *   - init_tuning(): creates the tuning task.
  */
 
+#include "sdkconfig.h"
+
 #ifdef CONFIG_GAINS_TUNE_ON
 #include <ctype.h>
 #include <math.h>
@@ -40,8 +42,6 @@
 #include "freertos/task.h"
 
 #include "esp_log.h"
-
-#include "sdkconfig.h"
 
 
 #define TUNING_TASK_PERIOD_MS 20 // Time between reads when there is no input

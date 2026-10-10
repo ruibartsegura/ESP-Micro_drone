@@ -177,9 +177,11 @@ void state_machine(void) {
                 if (blink_led) {
                     led_on(LED_BLUE);
                     blink_led = false;
+                    vTaskDelay(pdMS_TO_TICKS(150));
                 } else {
                     led_off(LED_BLUE);
                     blink_led = true;
+                    vTaskDelay(pdMS_TO_TICKS(150));
                 }
             }
             break;
@@ -214,9 +216,11 @@ void state_machine(void) {
                 if (blink_led) {
                     led_on(LED_GREEN);
                     blink_led = false;
+                    vTaskDelay(pdMS_TO_TICKS(150));
                 } else {
                     led_off(LED_GREEN);
                     blink_led = true;
+                    vTaskDelay(pdMS_TO_TICKS(150));
                 }
             }
             break;
@@ -232,14 +236,27 @@ void state_machine(void) {
 
                 change_state(DISARMING);
             } else {
+                 if (blink_led) {
+                    led_on(LED_RED);
+                    blink_led = false;
+                    vTaskDelay(pdMS_TO_TICKS(150));
+                } else {
                     led_off(LED_RED);
                     blink_led = true;
+                    vTaskDelay(pdMS_TO_TICKS(150));
                 }
+            }
             break;
 
         case DISARMING:
             motors_stop_all();
             disarm_motors();
+
+            led_on(LED_GREEN);
+            led_off(LED_RED);
+            led_off(LED_BLUE);
+
+            change_state(ARMING);
 
             break;
 

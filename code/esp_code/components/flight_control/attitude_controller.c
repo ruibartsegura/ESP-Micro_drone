@@ -62,13 +62,13 @@
 #define MAX_ANGLE 0.52 // 30º in rad
 
 
-// PID H -> will be /100
+// PID H
 #define KP_H 100 // Proportional 350 pow / 1m error
-#define KD_H 120 // Proportional 350 pow / 1m error
+#define KD_H 110 // Proportional 350 pow / 1m error
 
 // PID Angle & rate
-#define KP_ANGLE 2   // deg error -> deg/s target
-#define KP_RATE  10   // deg/s error -> motor power
+#define KP_ANGLE 4   // deg error -> deg/s target
+#define KP_RATE  6   // deg/s error -> motor power
 
 // Limits so the attitude never takes all the throttle of the motors
 #define MAX_RATE    200.0f // Max target roll/pitch rate (deg/s)

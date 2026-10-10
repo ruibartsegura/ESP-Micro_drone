@@ -8,7 +8,8 @@
  *   over WiFi (UDP), creates the "rui_drone" node and runs the executor in
  *   its own FreeRTOS task. Shared variables are protected with a mutex.
  *     - Publishes:  
- *                   drone/state (my_msgs/state) [x,y,z|qx,qy,qz,qw|vx,vy,vz|wx,wy,wz|ax,ay,az,]
+ *                   drone/state (my_msgs/state) [x,y,z|qx,qy,qz,qw|vx,vy,vz|wx,wy,wz|ax,ay,az]
+ *                   drone/odom (my_msgs/state) 
  *     - Subscribes: 
  *                   drone/cmd_vel (geometry_msgs/TwistStamped),
  *                   drone/params (my_msgs/Params)
@@ -60,6 +61,7 @@
 #include <rclc/rclc.h>
 #include <rclc/executor.h>
 #include <rosidl_runtime_c/string_functions.h>
+#include <rmw_microros/timing.h>
 
 // Msg types
 #include <sensor_msgs/msg/imu.h>
@@ -336,7 +338,7 @@ void land_callback(const void * req_msg, void * res_msg) {
         land_res->success = false;
         rosidl_runtime_c__String__assign(&land_res->message, "Status error");
         return;
-    } else if (state != HOVERING || state != EXTERNAL_CONTROL) {
+    } else if (state != HOVERING && state != EXTERNAL_CONTROL) {
         land_res->success = false;
         rosidl_runtime_c__String__assign(&land_res->message, "Not flying");
         return;
@@ -560,42 +562,35 @@ void micro_ros_task(void * arg) {
         "drone/takeoff_srv"
     ));
 
+    // Initialitation for simulation pub/sub
+    #ifdef CONFIG_SIMULATION_ON
+        // QoS 
+        rmw_qos_profile_t sim_qos = rmw_qos_profile_sensor_data;
+        sim_qos.depth = 1;
+    
+        // Init imu sub
+        RCCHECK(rclc_subscription_init(&imu_sub, &node,
+            ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu), "imu/data", &sim_qos));
+
+        // Init barometer sub
+        RCCHECK(rclc_subscription_init(&height_sub, &node,
+            ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, FluidPressure), "barometer/data", &sim_qos));
+
+        // Init motors pub - RELIABLE: Gazebo bridge subscriber requires RELIABLE
+        RCCHECK(rclc_publisher_init_best_effort(&motors_pub, &node,
+            ROSIDL_GET_MSG_TYPE_SUPPORT(actuator_msgs, msg, Actuators),
+            "/drone/command/motor_speed"));
+
+        motors_pub_ready = true;
+        rmw_uros_set_publisher_session_timeout(rcl_publisher_get_rmw_handle(&motors_pub), 50);
+    #endif
+
     // Init land service
     RCCHECK(rclc_service_init_default(
         &land_srv, &node,
         ROSIDL_GET_SRV_TYPE_SUPPORT(std_srvs, srv, Trigger),
         "drone/land_srv"
     ));
-
-    // Initialitation for simulation pub/sub
-    #ifdef CONFIG_SIMULATION_ON
-        // Init imu sub - depth=1: only keep latest, avoid executor callback bursts
-        {
-            rmw_qos_profile_t sim_qos = rmw_qos_profile_sensor_data;
-            sim_qos.depth = 1;
-            RCCHECK(rclc_subscription_init(&imu_sub, &node,
-                ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu), "imu/data", &sim_qos));
-        }
-
-        // Init barometer sub - depth=1: same reason
-        {
-            rmw_qos_profile_t sim_qos = rmw_qos_profile_sensor_data;
-            sim_qos.depth = 1;
-            RCCHECK(rclc_subscription_init(&height_sub, &node,
-                ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, FluidPressure), "barometer/data", &sim_qos));
-        }
-
-        // Init motors pub - RELIABLE: Gazebo bridge subscriber requires RELIABLE
-        {
-            rmw_qos_profile_t motors_qos = rmw_qos_profile_default;
-            motors_qos.history = RMW_QOS_POLICY_HISTORY_KEEP_LAST;
-            motors_qos.depth   = 2;
-            RCCHECK(rclc_publisher_init(&motors_pub, &node,
-                ROSIDL_GET_MSG_TYPE_SUPPORT(actuator_msgs, msg, Actuators),
-                "/drone/command/motor_speed", &motors_qos));
-        }
-        motors_pub_ready = true;
-    #endif
 
     // Init main timer
     rcl_timer_t timer;
