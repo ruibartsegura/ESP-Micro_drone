@@ -7,10 +7,14 @@
  *   micro-ROS interface of the drone. It connects to the micro-ROS agent
  *   over WiFi (UDP), creates the "rui_drone" node and runs the executor in
  *   its own FreeRTOS task. Shared variables are protected with a mutex.
- *     - Publishes:  drone/imu_data (sensor_msgs/Imu)
- *     - Subscribes: drone/cmd_vel (geometry_msgs/TwistStamped),
+ *     - Publishes:  
+ *                   drone/state (my_msgs/state) [x,y,z|qx,qy,qz,qw|vx,vy,vz|wx,wy,wz|ax,ay,az,]
+ *     - Subscribes: 
+ *                   drone/cmd_vel (geometry_msgs/TwistStamped),
  *                   drone/params (my_msgs/Params)
- *     - Service:    drone/takeoff_srv (my_msgs/Takeoff)
+ *     - Service:    
+ *                   drone/takeoff_srv (my_msgs/Takeoff)
+ *                   drone/land_srv (my_msgs/Land)
  *   In simulation mode it also subscribes to imu/data and barometer/data
  *   and publishes the motor speeds to /drone/command/motor_speed.
  *
@@ -41,6 +45,7 @@
 #include <unistd.h>
 #include <time.h>
 
+// ESP
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -48,6 +53,7 @@
 #include "esp_timer.h"
 #include "esp_wifi.h"
 
+// Micro ROS
 #include <uros_network_interfaces.h>
 #include <rcl/rcl.h>
 #include <rcl/error_handling.h>
@@ -64,6 +70,7 @@
 
 // Services types
 #include <my_msgs/srv/takeoff.h>
+#include <std_srvs/srv/trigger.h> // For landing
 
 // My includes
 #include "led.h"
@@ -123,6 +130,7 @@ sensor_msgs__msg__Imu imu_msg;
 rcl_subscription_t params_sub;
 my_msgs__msg__Params recv_msg;
 
+bool new_vel = false;
 rcl_subscription_t cmd_vel_sub;
 geometry_msgs__msg__TwistStamped cmd_vel_msg;
 
@@ -137,20 +145,26 @@ static bool params_2_update = false;
 // ============================================================
 //                          Services
 // ============================================================
+// Take-off
 rcl_service_t takeoff_srv;
 my_msgs__srv__Takeoff_Request  takeoff_req;
 my_msgs__srv__Takeoff_Response takeoff_res;
+
+bool take_off_ready = false;
+float altitude = MIN_ALT;
+
+// Land
+rcl_service_t land_srv;
+std_srvs__srv__Trigger_Request  land_req;
+std_srvs__srv__Trigger_Response land_res;
+
+bool land_ready = false;
+
 
 // ============================================================
 //                           Mutex
 // ============================================================
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-
-// ============================================================
-//                  Take off service params
-// ============================================================
-bool take_off_ready = false;
-float altitude = MIN_ALT;
 
 
 // ============================================================
@@ -219,6 +233,14 @@ void param_callback(const void * msgin)
 // ============================================================
 //                          CMD_VEL
 // ============================================================
+bool get_new_vel() {
+    pthread_mutex_lock(&lock);
+    bool res = new_vel;
+    new_vel = false;
+    pthread_mutex_unlock(&lock);
+    return res;
+}
+
 geometry_msgs__msg__Twist get_cmd_vel() {
     return cmd_vel_msg.twist;
 }
@@ -254,24 +276,18 @@ float get_take_off_alt() {
 
 // Take off callback
 void takeoff_callback(const void * req_msg, void * res_msg) {
-    my_msgs__srv__Takeoff_Request  * takeoff_req =
-        (my_msgs__srv__Takeoff_Request *)req_msg;
-    my_msgs__srv__Takeoff_Response * takeoff_res =
-        (my_msgs__srv__Takeoff_Response *)res_msg;
+    my_msgs__srv__Takeoff_Request  * takeoff_req = (my_msgs__srv__Takeoff_Request *)req_msg;
+    my_msgs__srv__Takeoff_Response * takeoff_res = (my_msgs__srv__Takeoff_Response *)res_msg;
 
     sm_states_t state;
     get_sm_state(&state);
 
-    ESP_LOGI(TAG, "TAKEOFF: received alt=%.2f state=%d", takeoff_req->altitude, (int)state);
-
     // Check drone state, to just accept the take off when the drone is armed and waiting to take off
     if (state == ERROR) { // Error state
-        ESP_LOGW(TAG, "TAKEOFF: rejected - ERROR state");
         takeoff_res->accepted = false;
         rosidl_runtime_c__String__assign(&takeoff_res->reason, "Status error");
         return;
     } else if (state != ARMING) { // Not Arming
-        ESP_LOGW(TAG, "TAKEOFF: rejected - state=%d not ARMING(%d)", (int)state, (int)ARMING);
         takeoff_res->accepted = false;
         rosidl_runtime_c__String__assign(&takeoff_res->reason, "Not armed");
         return;
@@ -279,8 +295,6 @@ void takeoff_callback(const void * req_msg, void * res_msg) {
 
     // Check requested altitude
     if (takeoff_req->altitude < MIN_ALT || takeoff_req->altitude > MAX_ALT) {
-        ESP_LOGW(TAG, "TAKEOFF: rejected - alt=%.2f out of [%.2f, %.2f]",
-                 takeoff_req->altitude, MIN_ALT, MAX_ALT);
         takeoff_res->accepted = false;
         rosidl_runtime_c__String__assign(&takeoff_res->reason, "Invalid altitude");
         return;
@@ -292,9 +306,49 @@ void takeoff_callback(const void * req_msg, void * res_msg) {
     altitude = takeoff_req->altitude;
     pthread_mutex_unlock(&lock);
 
-    ESP_LOGI(TAG, "TAKEOFF: accepted alt=%.2f", takeoff_req->altitude);
     takeoff_res->accepted = true;
     rosidl_runtime_c__String__assign(&takeoff_res->reason, "OK");
+}
+
+
+// ============================================================
+//                           Land
+// ============================================================
+// Getter if the landing is ready
+bool get_landing_ready() {
+    pthread_mutex_lock(&lock);
+    bool res = land_ready;
+    land_ready = false;
+    pthread_mutex_unlock(&lock);
+    return res;
+}
+
+// Take off callback
+void land_callback(const void * req_msg, void * res_msg) {
+    std_srvs__srv__Trigger_Request  * land_req = (std_srvs__srv__Trigger_Request *)req_msg;
+    std_srvs__srv__Trigger_Response * land_res = (std_srvs__srv__Trigger_Response *)res_msg;
+
+    sm_states_t state;
+    get_sm_state(&state);
+
+    // Check drone state, to just accept the land order when the drone is flying
+    if (state == ERROR) { // Error state
+        land_res->success = false;
+        rosidl_runtime_c__String__assign(&land_res->message, "Status error");
+        return;
+    } else if (state != HOVERING || state != EXTERNAL_CONTROL) {
+        land_res->success = false;
+        rosidl_runtime_c__String__assign(&land_res->message, "Not flying");
+        return;
+    }
+
+    // Land -> ready
+    pthread_mutex_lock(&lock);
+    land_ready = true;
+    pthread_mutex_unlock(&lock);
+
+    land_res->success = true;
+    rosidl_runtime_c__String__assign(&land_res->message, "OK");
 }
 
 
@@ -506,6 +560,13 @@ void micro_ros_task(void * arg) {
         "drone/takeoff_srv"
     ));
 
+    // Init land service
+    RCCHECK(rclc_service_init_default(
+        &land_srv, &node,
+        ROSIDL_GET_SRV_TYPE_SUPPORT(std_srvs, srv, Trigger),
+        "drone/land_srv"
+    ));
+
     // Initialitation for simulation pub/sub
     #ifdef CONFIG_SIMULATION_ON
         // Init imu sub - depth=1: only keep latest, avoid executor callback bursts
@@ -554,6 +615,9 @@ void micro_ros_task(void * arg) {
 
     RCCHECK(rclc_executor_add_service(&executor, &takeoff_srv, &takeoff_req,
         &takeoff_res, takeoff_callback));
+
+    RCCHECK(rclc_executor_add_service(&executor, &land_srv, &land_req,
+        &land_res, land_callback));
 
     RCCHECK(rclc_executor_add_subscription(&executor, &params_sub, &recv_msg,
         &param_callback, ON_NEW_DATA));

@@ -92,9 +92,9 @@ void system_init(void) {
     init_attitude_controller();
     vTaskDelay(pdMS_TO_TICKS(500));
 
-    // TODO: Crear flag para uso
-    init_tuning(); // change the gains from the serial console
-
+    #ifdef CONFIG_GAINS_TUNE_ON
+        init_tuning(); // change the gains from the serial console
+    #endif
 
     ros_init(); // last init
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -132,21 +132,8 @@ ATTITUDE_TARGET get_attitude() {
     return att_target;
 }
 
-// TODO: Ver código pq tal vez hay que moverlo a attitude_controller
-// Check if the take_off has reached the desired altitude
-bool check_takeOff_2_hov(float hov_h) {
-    float h = 0; //get_h();
 
-    float above_error, below_error;
-    above_error = hov_h + hov_h * (ALTITUDE_ERROR / 100.0f);
-    below_error = hov_h - hov_h * (ALTITUDE_ERROR / 100.0f);
-
-    if(h > below_error && h < above_error) {
-        return true;
-    } else {
-        return false;
-    }
-}
+static bool blink_led = true;
 
 void state_machine(void) {
 
@@ -171,10 +158,6 @@ void state_machine(void) {
         case ARMING:
             if(get_take_off_ready()) {
                 arm_motors();
-                for(int t=0; t < 3; t++) {
-                    led_on(LED_BLUE);
-                    vTaskDelay(pdMS_TO_TICKS(150));
-                }
 
                 change_state(TAKING_OFF);
             } else {
@@ -187,8 +170,17 @@ void state_machine(void) {
             att_target.cmd_vel = hover_vel;
             att_target.h = get_take_off_alt();
 
-            if (check_takeOff_2_hov(att_target.h)) {
+            if (check_h_reached()) {
+                led_on(LED_BLUE);
                 change_state(HOVERING);
+            } else {
+                if (blink_led) {
+                    led_on(LED_BLUE);
+                    blink_led = false;
+                } else {
+                    led_off(LED_BLUE);
+                    blink_led = true;
+                }
             }
             break;
 
@@ -197,35 +189,52 @@ void state_machine(void) {
             att_target.h = get_take_off_alt();
 
 
-            // if (new_vel()) {
-            //     change_state(EXTERNAL_CONTROL);
-            // }
+            if (get_new_vel()) {
+                change_state(EXTERNAL_CONTROL);
+            }
 
-            // if (get_land()) {
-            //     change_state(LANDING);
-            // }
+            if (get_landing_ready()) {
+                led_on(LED_GREEN);
+                led_off(LED_BLUE);
+
+                change_state(LANDING);
+            }
             break;
 
         case EXTERNAL_CONTROL:
-            att_target.cmd_vel = get_cmd_vel(); // TODO: revisar caducidad del cmd_vel
+            att_target.cmd_vel = get_cmd_vel();
             att_target.h = get_take_off_alt();
 
-            // if (!get_new_pos()) {
-            //     change_state(HOVERING);
-            // }
+            if (get_landing_ready()) {
+                led_on(LED_GREEN);
+                led_off(LED_BLUE);
 
-            // if (get_land()) {
-            //     change_state(LANDING);
-            // }
+                change_state(LANDING);
+            } else {
+                if (blink_led) {
+                    led_on(LED_GREEN);
+                    blink_led = false;
+                } else {
+                    led_off(LED_GREEN);
+                    blink_led = true;
+                }
+            }
             break;
 
         case LANDING:
             att_target.cmd_vel = hover_vel;
             att_target.h = 0;
 
-            // if (get_land()) {
-            //     change_state(LANDING);
-            // }
+            if (check_h_reached()) {
+                led_on(LED_RED);
+                led_on(LED_GREEN);
+                led_on(LED_BLUE);
+
+                change_state(DISARMING);
+            } else {
+                    led_off(LED_RED);
+                    blink_led = true;
+                }
             break;
 
         case DISARMING:

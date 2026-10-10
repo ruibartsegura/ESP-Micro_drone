@@ -33,8 +33,12 @@ bool ros_test(void);
 // take off status
 extern bool take_off_ready ;
 extern float altitude;
-bool get_take_off_ready(); // return the if srv arrive
+bool get_take_off_ready(); // return if service has arrived
 float get_take_off_alt(); // return the altitude
+
+bool get_landing_ready(); // return service has arrived
+
+bool get_new_vel();
 geometry_msgs__msg__Twist get_cmd_vel(); // return the cmd_vel
 
 #define NUM_MOTORS 4

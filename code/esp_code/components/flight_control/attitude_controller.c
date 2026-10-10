@@ -96,6 +96,7 @@ static GAINS gains = {
 };
 static pthread_mutex_t gains_lock = PTHREAD_MUTEX_INITIALIZER;
 
+
 // ============================================================
 //              Tune the gains of the controller
 // ============================================================
@@ -118,12 +119,17 @@ void set_gains(const GAINS *in) {
 float DIFF_H_ALLOWED = 0.01; // In meters
 
 RPY last_rpy;
+
 static float h_est, last_vel_Z;  // Estimated height (m) and vertical velocity (m/s)
 static float h0;                 // Ground height (first barometer sample)
 static int64_t last_t_h;         // IMU time of the last height estimation (ns)
 static bool h_init = false;
 static float err_h;
 
+
+// ============================================================
+//                  Checker of the height
+// ============================================================
 bool check_h_reached() {
     if (fabsf(err_h) <= DIFF_H_ALLOWED) {
         return true;
@@ -132,6 +138,10 @@ bool check_h_reached() {
     }
 }
 
+
+// ============================================================
+//                   Auxiliar functions
+// ============================================================
 static float clampf(float x, float lim) {
     if (x > lim) {
         return lim;
@@ -144,6 +154,7 @@ static float clampf(float x, float lim) {
 float complementary_filter(float a, float b, float alpha) {
     return (alpha * a + (1.0 - alpha) * b);
 }
+
 
 // ============================================================
 //              Getting height & filtering it
