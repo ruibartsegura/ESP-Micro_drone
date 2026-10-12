@@ -25,6 +25,7 @@
 #include "rclc/rclc.h"
 #include "rclc/executor.h"
 #include "rmw_microros/rmw_microros.h"
+#include "rmw_microros/timing.h"
 #include "mock_ros_msgs.h"
 
 void mock_task_exit(void);   /* mock_esp.c */
@@ -106,6 +107,22 @@ rcl_ret_t rmw_uros_options_set_udp_address(const char *ip, const char *port, rmw
     snprintf(mock_uros_agent_ip, sizeof mock_uros_agent_ip, "%s", ip);
     snprintf(mock_uros_agent_port, sizeof mock_uros_agent_port, "%s", port);
     return mock_rcl_next();
+}
+
+/* ---- rmw_microros/timing.h ---- */
+int                    mock_uros_pub_timeout_ms = -1;
+const rcl_publisher_t *mock_uros_pub_timeout_pub;
+static rmw_publisher_t mock_rmw_pub;
+
+rmw_publisher_t *rcl_publisher_get_rmw_handle(const rcl_publisher_t *pub) {
+    mock_rmw_pub.pub = pub;
+    return &mock_rmw_pub;
+}
+
+rmw_ret_t rmw_uros_set_publisher_session_timeout(rmw_publisher_t *pub, int session_timeout) {
+    mock_uros_pub_timeout_pub = pub ? pub->pub : NULL;
+    mock_uros_pub_timeout_ms = session_timeout;
+    return 0;
 }
 
 /* ---- rclc ---- */
@@ -263,6 +280,8 @@ void mock_reset_ros(void) {
     mock_rcl_last_msg = NULL;
     mock_uros_agent_ip[0] = '\0';
     mock_uros_agent_port[0] = '\0';
+    mock_uros_pub_timeout_ms = -1;
+    mock_uros_pub_timeout_pub = NULL;
     memset(mock_exec_handles, 0, sizeof mock_exec_handles);
     mock_exec_handle_count = 0;
     mock_exec_max_handles = 0;

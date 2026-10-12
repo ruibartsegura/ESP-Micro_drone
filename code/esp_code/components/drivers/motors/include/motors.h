@@ -42,7 +42,7 @@ void arm_motors(void);
 
 void disarm_motors(void);
 
-void motors_init(void);
+void init_motors(void);
 bool motors_test(void); // Check leds
 
 // Power of each motor: 0..100 % on the real drone, 0..MAX_POWER in simulation.

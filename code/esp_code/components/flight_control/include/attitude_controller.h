@@ -46,6 +46,7 @@ typedef struct gains {
     float base;        // hover throttle
 } GAINS;
 
+float get_vel_z(); // To avoid the calc in odometry
 
 bool check_h_reached();
 

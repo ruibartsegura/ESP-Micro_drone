@@ -14,20 +14,18 @@
  *     -> LANDING -> DISARMING, and ERROR.
  *   The real state.c is linked (the state is saved there).
  *
- *   Transitions that are still TODO in system.c are IGNORED tests: remove
- *   the TEST_IGNORE_MESSAGE() line when you implement them.
- *
  *   The .c file is included directly. Another version can be tested with:
  *       make run T=system_hw MODULE_SRC=path/to/system.c
  *
  *   Tests that fail with the current code have [BUG] in their comment.
  *
  * Functions:
- *   - Mocks of led, imu, height, motors, attitude_controller, ros_coordinator.
+ *   - Mocks of led, imu, height, motors, attitude_controller, odometry,
+ *     tuning, ros_coordinator.
  *   - called() / call_index(): look in the log of calls.
  *   - go_to(): puts the state machine in a state.
  *   - setUp() / tearDown(): reset the mocks, the module and the state.
- *   - test_init_*, test_selftest_*, test_sm_*, test_takeoff_check_*, test_task_*.
+ *   - test_init_*, test_selftest_*, test_sm_*, test_task_*.
  *   - main(): runs all the tests.
  */
 #include "unity.h"
@@ -59,9 +57,11 @@ static int call_index(const char *name) {
 }
 
 static bool led_test_ret, imu_test_ret, height_test_ret, ros_test_ret, motors_test_ret;
-static bool take_off_ready_ret;
+static bool take_off_ready_ret, landing_ready_ret, h_reached_ret;
 static float take_off_alt_ret;
 static geometry_msgs__msg__Twist cmd_vel_ret;
+static bool cmd_vel_fresh_ret;      /* get_cmd_vel(): a new cmd_vel has arrived */
+static int  cmd_vel_max_age_ms;     /* last max_age_ms asked to get_cmd_vel() */
 static int led_on_count[N_LEDS], led_off_count[N_LEDS];
 
 void led_init(void)        { log_call("led_init"); }
@@ -74,7 +74,7 @@ void imu_init(void)        { log_call("imu_init"); }
 bool imu_test(void)        { log_call("imu_test"); return imu_test_ret; }
 void height_init(void)     { log_call("height_init"); }
 bool height_test(void)     { log_call("height_test"); return height_test_ret; }
-void motors_init(void)     { log_call("motors_init"); }
+void init_motors(void)     { log_call("init_motors"); }
 bool motors_test(void)     { log_call("motors_test"); return motors_test_ret; }
 void arm_motors(void)      { log_call("arm_motors"); }
 void disarm_motors(void)   { log_call("disarm_motors"); }
@@ -85,8 +85,18 @@ void ros_init(void)        { log_call("ros_init"); }
 bool ros_test(void)        { log_call("ros_test"); return ros_test_ret; }
 bool get_take_off_ready(void) { log_call("get_take_off_ready"); return take_off_ready_ret; }
 float get_take_off_alt(void)  { log_call("get_take_off_alt"); return take_off_alt_ret; }
-geometry_msgs__msg__Twist get_cmd_vel(void) { log_call("get_cmd_vel"); return cmd_vel_ret; }
-void odom_estimator_init(void) { log_call("odom_estimator_init"); }
+bool get_landing_ready(void)  { log_call("get_landing_ready"); return landing_ready_ret; }
+bool check_h_reached(void)    { log_call("check_h_reached"); return h_reached_ret; }
+void init_odom_estimator(void) { log_call("init_odom_estimator"); }
+
+bool get_cmd_vel(geometry_msgs__msg__Twist *out, int max_age_ms) {
+    log_call("get_cmd_vel");
+    cmd_vel_max_age_ms = max_age_ms;
+    if (cmd_vel_fresh_ret) {
+        *out = cmd_vel_ret;
+    }
+    return cmd_vel_fresh_ret;
+}
 
 /* ------------------------------------------------------------------ */
 /*                              HELPERS                               */
@@ -116,9 +126,12 @@ void setUp(void) {
     state_init();
     clear_logs();
     led_test_ret = imu_test_ret = height_test_ret = ros_test_ret = motors_test_ret = true;
-    take_off_ready_ret = false;
+    take_off_ready_ret = landing_ready_ret = h_reached_ret = false;
     take_off_alt_ret = 1.0f;
     memset(&cmd_vel_ret, 0, sizeof cmd_vel_ret);
+    cmd_vel_fresh_ret = false;
+    cmd_vel_max_age_ms = -1;
+    blink_led = true;
 }
 
 void tearDown(void) {}
@@ -129,8 +142,10 @@ void tearDown(void) {}
 void test_init_starts_every_module(void) {
     system_init();
     TEST_ASSERT_EQUAL_INT(1, called("led_init"));
-    TEST_ASSERT_EQUAL_INT(1, called("motors_init"));
+    TEST_ASSERT_EQUAL_INT(1, called("init_motors"));
     TEST_ASSERT_EQUAL_INT(1, called("init_attitude_controller"));
+    TEST_ASSERT_EQUAL_INT(1, called("init_odom_estimator"));
+    TEST_ASSERT_EQUAL_INT(1, called("init_tuning"));   /* CONFIG_GAINS_TUNE_ON */
     TEST_ASSERT_EQUAL_INT(1, called("ros_init"));
 #ifdef CONFIG_SIMULATION_ON
     TEST_ASSERT_EQUAL_INT(0, called("imu_init"));
@@ -152,7 +167,7 @@ void test_init_sensors_before_the_controller(void) {
     TEST_ASSERT_TRUE(call_index("imu_init") < call_index("init_attitude_controller"));
     TEST_ASSERT_TRUE(call_index("height_init") < call_index("init_attitude_controller"));
 #endif
-    TEST_ASSERT_TRUE(call_index("motors_init") < call_index("init_attitude_controller"));
+    TEST_ASSERT_TRUE(call_index("init_motors") < call_index("init_attitude_controller"));
 }
 
 void test_init_resets_the_global_state(void) {
@@ -170,11 +185,10 @@ void test_init_twice_starts_the_modules_once(void) {
     TEST_ASSERT_EQUAL_INT(1, called("ros_init"));
 }
 
-/* [BUG] odom_estimator_init() is never called, so the odometry task
- * (odom_task, 100 Hz) described in the documentation never runs. */
-void test_init_starts_the_odometry(void) {
+/* The odometry uses the vertical velocity of the attitude controller. */
+void test_init_odometry_after_the_controller(void) {
     system_init();
-    TEST_ASSERT_EQUAL_INT(1, called("odom_estimator_init"));
+    TEST_ASSERT_TRUE(call_index("init_attitude_controller") < call_index("init_odom_estimator"));
 }
 
 /* ------------------------------------------------------------------ */
@@ -289,20 +303,11 @@ void test_sm_ARMING_with_takeoff_arms_and_goes_to_TAKING_OFF(void) {
     TEST_ASSERT_EQUAL_INT(TAKING_OFF, state);
 }
 
-/* [BUG] The blue LED should blink 3 times when the drone is armed, but
- * the loop only calls led_on(): the LED stays on, it never blinks. */
-void test_sm_ARMING_blinks_the_blue_led_3_times(void) {
-    go_to(ARMING);
-    take_off_ready_ret = true;
-    state_machine();
-    TEST_ASSERT_EQUAL_INT(3, led_on_count[LED_BLUE]);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(3, led_off_count[LED_BLUE], "to blink, the LED must also be turned off");
-}
-
 void test_sm_TAKING_OFF_targets_the_takeoff_altitude_without_moving(void) {
     go_to(TAKING_OFF);
     take_off_alt_ret = 1.5f;
     cmd_vel_ret.linear.x = 3.0;   /* must be ignored */
+    cmd_vel_fresh_ret = true;
     state_machine();
     ATTITUDE_TARGET t = get_attitude();
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.5f, t.h);
@@ -310,28 +315,45 @@ void test_sm_TAKING_OFF_targets_the_takeoff_altitude_without_moving(void) {
     TEST_ASSERT_EQUAL_DOUBLE(0.0, t.cmd_vel.angular.z);
 }
 
-void test_sm_TAKING_OFF_stays_while_below_the_altitude(void) {
+void test_sm_TAKING_OFF_stays_while_the_height_is_not_reached(void) {
     go_to(TAKING_OFF);
-    take_off_alt_ret = 1.0f;
-    set_h(0.3f);
-    state_machine();
+    h_reached_ret = false;
+    for (int i = 0; i < 10; i++) state_machine();
     TEST_ASSERT_EQUAL_INT(TAKING_OFF, state);
 }
 
-/* [BUG] check_takeOff_2_hov() uses "float h = 0; //get_h();" instead of the
- * real height, so the drone never goes from TAKING_OFF to HOVERING. */
-void test_sm_TAKING_OFF_at_the_altitude_goes_to_HOVERING(void) {
+void test_sm_TAKING_OFF_blinks_the_blue_led(void) {
     go_to(TAKING_OFF);
-    take_off_alt_ret = 1.0f;
-    set_h(1.0f);
+    for (int i = 0; i < 4; i++) state_machine();
+    TEST_ASSERT_EQUAL_INT(2, led_on_count[LED_BLUE]);
+    TEST_ASSERT_EQUAL_INT(2, led_off_count[LED_BLUE]);
+    TEST_ASSERT_EQUAL_UINT64(4 * 150, mock_delay_total_ms);
+}
+
+void test_sm_TAKING_OFF_height_reached_goes_to_HOVERING_with_blue_led(void) {
+    go_to(TAKING_OFF);
+    h_reached_ret = true;
     state_machine();
     TEST_ASSERT_EQUAL_INT(HOVERING, state);
+    TEST_ASSERT_EQUAL_INT(1, led_on_count[LED_BLUE]);
+    TEST_ASSERT_EQUAL_INT(0, led_off_count[LED_BLUE]);
+}
+
+/* [BUG] check_h_reached() is computed by the attitude task with the
+ * previous target: in ARMING the target is 0 m and the drone is on the
+ * ground, so it is already true. In the first cycle of TAKING_OFF the new
+ * target has not been used yet and the drone goes to HOVERING on the ground. */
+void test_sm_TAKING_OFF_does_not_trust_the_height_of_the_previous_target(void) {
+    go_to(TAKING_OFF);
+    h_reached_ret = true;   /* still true from the ground (target 0 m) */
+    state_machine();
+    TEST_ASSERT_EQUAL_INT_MESSAGE(TAKING_OFF, state, "the first cycle sets the new target, it cannot be reached yet");
 }
 
 void test_sm_HOVERING_keeps_the_altitude_and_does_not_move(void) {
     go_to(HOVERING);
     take_off_alt_ret = 0.8f;
-    cmd_vel_ret.linear.y = 1.0;
+    cmd_vel_ret.linear.y = 1.0;   /* not fresh: ignored */
     state_machine();
     ATTITUDE_TARGET t = get_attitude();
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.8f, t.h);
@@ -339,25 +361,107 @@ void test_sm_HOVERING_keeps_the_altitude_and_does_not_move(void) {
     TEST_ASSERT_EQUAL_INT(HOVERING, state);
 }
 
+void test_sm_HOVERING_new_cmd_vel_goes_to_EXTERNAL_CONTROL(void) {
+    go_to(HOVERING);
+    cmd_vel_fresh_ret = true;
+    state_machine();
+    TEST_ASSERT_EQUAL_INT(EXTERNAL_CONTROL, state);
+    TEST_ASSERT_EQUAL_INT(CMD_VEL_EXPIRE_TIME, cmd_vel_max_age_ms);
+}
+
+void test_sm_HOVERING_land_goes_to_LANDING(void) {
+    go_to(HOVERING);
+    landing_ready_ret = true;
+    state_machine();
+    TEST_ASSERT_EQUAL_INT(LANDING, state);
+    TEST_ASSERT_EQUAL_INT(1, led_on_count[LED_GREEN]);
+    TEST_ASSERT_EQUAL_INT(1, led_off_count[LED_BLUE]);
+}
+
+void test_sm_HOVERING_land_has_priority_over_cmd_vel(void) {
+    go_to(HOVERING);
+    cmd_vel_fresh_ret = true;
+    landing_ready_ret = true;
+    state_machine();
+    TEST_ASSERT_EQUAL_INT(LANDING, state);
+}
+
 void test_sm_EXTERNAL_CONTROL_follows_cmd_vel(void) {
     go_to(EXTERNAL_CONTROL);
     take_off_alt_ret = 0.8f;
     cmd_vel_ret.linear.x = 0.5;
     cmd_vel_ret.angular.z = 0.2;
+    cmd_vel_fresh_ret = true;
     state_machine();
     ATTITUDE_TARGET t = get_attitude();
     TEST_ASSERT_EQUAL_DOUBLE(0.5, t.cmd_vel.linear.x);
     TEST_ASSERT_EQUAL_DOUBLE(0.2, t.cmd_vel.angular.z);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.8f, t.h);
+    TEST_ASSERT_EQUAL_INT(EXTERNAL_CONTROL, state);
+}
+
+void test_sm_EXTERNAL_CONTROL_uses_the_cmd_vel_expire_time(void) {
+    go_to(EXTERNAL_CONTROL);
+    cmd_vel_fresh_ret = true;
+    state_machine();
+    TEST_ASSERT_EQUAL_INT(CMD_VEL_EXPIRE_TIME, cmd_vel_max_age_ms);
+}
+
+void test_sm_EXTERNAL_CONTROL_old_cmd_vel_goes_to_HOVERING(void) {
+    go_to(EXTERNAL_CONTROL);
+    cmd_vel_ret.linear.x = 0.5;
+    cmd_vel_fresh_ret = true;
+    state_machine();
+    cmd_vel_fresh_ret = false;    /* no cmd_vel for CMD_VEL_EXPIRE_TIME */
+    state_machine();
+    ATTITUDE_TARGET t = get_attitude();
+    TEST_ASSERT_EQUAL_INT(HOVERING, state);
+    TEST_ASSERT_EQUAL_DOUBLE_MESSAGE(0.0, t.cmd_vel.linear.x, "without cmd_vel the drone must stop");
+}
+
+void test_sm_EXTERNAL_CONTROL_land_goes_to_LANDING(void) {
+    go_to(EXTERNAL_CONTROL);
+    cmd_vel_fresh_ret = true;
+    landing_ready_ret = true;
+    state_machine();
+    TEST_ASSERT_EQUAL_INT(LANDING, state);
 }
 
 void test_sm_LANDING_targets_the_ground_without_moving(void) {
     go_to(LANDING);
     cmd_vel_ret.linear.x = 1.0;
+    cmd_vel_fresh_ret = true;
     state_machine();
     ATTITUDE_TARGET t = get_attitude();
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, t.h);
     TEST_ASSERT_EQUAL_DOUBLE(0.0, t.cmd_vel.linear.x);
+}
+
+void test_sm_LANDING_stays_and_blinks_the_red_led_while_flying(void) {
+    go_to(LANDING);
+    for (int i = 0; i < 4; i++) state_machine();
+    TEST_ASSERT_EQUAL_INT(LANDING, state);
+    TEST_ASSERT_EQUAL_INT(2, led_on_count[LED_RED]);
+    TEST_ASSERT_EQUAL_INT(2, led_off_count[LED_RED]);
+}
+
+void test_sm_LANDING_on_the_ground_goes_to_DISARMING(void) {
+    go_to(LANDING);
+    state_machine();              /* first cycle: new target 0 m */
+    h_reached_ret = true;         /* the controller reached the ground */
+    state_machine();
+    TEST_ASSERT_EQUAL_INT(DISARMING, state);
+}
+
+/* [BUG] Same as in TAKING_OFF, but worse: in HOVERING check_h_reached() is
+ * true (hover height reached). In the first cycle of LANDING the attitude
+ * task has not used the new target (0 m) yet, so it goes to DISARMING and
+ * stops the motors in the air. */
+void test_sm_LANDING_does_not_trust_the_height_of_the_previous_target(void) {
+    go_to(LANDING);
+    h_reached_ret = true;   /* still true from HOVERING */
+    state_machine();
+    TEST_ASSERT_EQUAL_INT_MESSAGE(LANDING, state, "the motors are stopped in the air");
 }
 
 void test_sm_DISARMING_stops_and_disarms_the_motors(void) {
@@ -365,7 +469,15 @@ void test_sm_DISARMING_stops_and_disarms_the_motors(void) {
     state_machine();
     TEST_ASSERT_EQUAL_INT(1, called("motors_stop_all"));
     TEST_ASSERT_EQUAL_INT(1, called("disarm_motors"));
-    TEST_ASSERT_TRUE(call_index("motors_stop_all") < call_index("disarm_motors"));
+}
+
+void test_sm_DISARMING_goes_back_to_ARMING_with_green_led(void) {
+    go_to(DISARMING);
+    state_machine();
+    TEST_ASSERT_EQUAL_INT(ARMING, state);
+    TEST_ASSERT_EQUAL_INT(1, led_on_count[LED_GREEN]);
+    TEST_ASSERT_EQUAL_INT(1, led_off_count[LED_RED]);
+    TEST_ASSERT_EQUAL_INT(1, led_off_count[LED_BLUE]);
 }
 
 void test_sm_ERROR_is_final(void) {
@@ -376,7 +488,7 @@ void test_sm_ERROR_is_final(void) {
     TEST_ASSERT_EQUAL_INT(0, called("arm_motors"));
 }
 
-void test_sm_full_flight_until_TAKING_OFF(void) {
+void test_sm_full_flight(void) {
     state_machine();                                 /* INIT */
     TEST_ASSERT_EQUAL_INT(CHECKING, global_sm());
     state_machine();                                 /* CHECKING */
@@ -389,51 +501,27 @@ void test_sm_full_flight_until_TAKING_OFF(void) {
     TEST_ASSERT_EQUAL_INT(TAKING_OFF, global_sm());
     state_machine();
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.2f, get_attitude().h);
-}
-
-void test_sm_HOVERING_new_cmd_vel_goes_to_EXTERNAL_CONTROL(void) {
-    TEST_IGNORE_MESSAGE("TODO in system.c: HOVERING -> EXTERNAL_CONTROL is not implemented");
-}
-
-void test_sm_HOVERING_land_goes_to_LANDING(void) {
-    TEST_IGNORE_MESSAGE("TODO in system.c: HOVERING -> LANDING is not implemented");
-}
-
-void test_sm_EXTERNAL_CONTROL_old_cmd_vel_goes_to_HOVERING(void) {
-    TEST_IGNORE_MESSAGE("TODO in system.c: EXTERNAL_CONTROL -> HOVERING (old cmd_vel) is not implemented");
-}
-
-void test_sm_LANDING_on_the_ground_goes_to_DISARMING(void) {
-    TEST_IGNORE_MESSAGE("TODO in system.c: LANDING -> DISARMING is not implemented");
-}
-
-/* ------------------------------------------------------------------ */
-/*                       TAKE-OFF ALTITUDE CHECK                      */
-/* ------------------------------------------------------------------ */
-/* [BUG] Same bug as above: the height is always 0. */
-void test_takeoff_check_true_at_the_altitude(void) {
-    set_h(1.0f);
-    TEST_ASSERT_TRUE(check_takeOff_2_hov(1.0f));
-}
-
-/* [BUG] Same bug: the margin is +-5 %. */
-void test_takeoff_check_true_inside_5_percent(void) {
-    set_h(0.96f);
-    TEST_ASSERT_TRUE(check_takeOff_2_hov(1.0f));
-    set_h(1.04f);
-    TEST_ASSERT_TRUE(check_takeOff_2_hov(1.0f));
-}
-
-void test_takeoff_check_false_outside_5_percent(void) {
-    set_h(0.90f);
-    TEST_ASSERT_FALSE(check_takeOff_2_hov(1.0f));
-    set_h(1.10f);
-    TEST_ASSERT_FALSE(check_takeOff_2_hov(1.0f));
-}
-
-void test_takeoff_check_false_on_the_ground(void) {
-    set_h(0.0f);
-    TEST_ASSERT_FALSE(check_takeOff_2_hov(1.0f));
+    h_reached_ret = true;
+    state_machine();                                 /* TAKING_OFF, at 1.2 m */
+    TEST_ASSERT_EQUAL_INT(HOVERING, global_sm());
+    cmd_vel_fresh_ret = true;
+    state_machine();                                 /* HOVERING, cmd_vel */
+    TEST_ASSERT_EQUAL_INT(EXTERNAL_CONTROL, global_sm());
+    cmd_vel_fresh_ret = false;
+    state_machine();                                 /* EXTERNAL_CONTROL, old cmd_vel */
+    TEST_ASSERT_EQUAL_INT(HOVERING, global_sm());
+    landing_ready_ret = true;
+    state_machine();                                 /* HOVERING, land */
+    TEST_ASSERT_EQUAL_INT(LANDING, global_sm());
+    h_reached_ret = false;
+    state_machine();                                 /* LANDING, going down */
+    TEST_ASSERT_EQUAL_INT(LANDING, global_sm());
+    h_reached_ret = true;
+    state_machine();                                 /* LANDING, on the ground */
+    TEST_ASSERT_EQUAL_INT(DISARMING, global_sm());
+    state_machine();                                 /* DISARMING */
+    TEST_ASSERT_EQUAL_INT(ARMING, global_sm());
+    TEST_ASSERT_EQUAL_INT(1, called("disarm_motors"));
 }
 
 /* ------------------------------------------------------------------ */
@@ -475,7 +563,7 @@ int main(void) {
     RUN_TEST(test_init_sensors_before_the_controller);
     RUN_TEST(test_init_resets_the_global_state);
     RUN_TEST(test_init_twice_starts_the_modules_once);
-    RUN_TEST(test_init_starts_the_odometry);
+    RUN_TEST(test_init_odometry_after_the_controller);
 
     RUN_TEST(test_selftest_false_before_init);
     RUN_TEST(test_selftest_true_when_everything_is_ok);
@@ -497,25 +585,27 @@ int main(void) {
     RUN_TEST(test_sm_ARMING_waits_for_the_takeoff);
     RUN_TEST(test_sm_ARMING_checks_the_service_every_150_ms);
     RUN_TEST(test_sm_ARMING_with_takeoff_arms_and_goes_to_TAKING_OFF);
-    RUN_TEST(test_sm_ARMING_blinks_the_blue_led_3_times);
     RUN_TEST(test_sm_TAKING_OFF_targets_the_takeoff_altitude_without_moving);
-    RUN_TEST(test_sm_TAKING_OFF_stays_while_below_the_altitude);
-    RUN_TEST(test_sm_TAKING_OFF_at_the_altitude_goes_to_HOVERING);
+    RUN_TEST(test_sm_TAKING_OFF_stays_while_the_height_is_not_reached);
+    RUN_TEST(test_sm_TAKING_OFF_blinks_the_blue_led);
+    RUN_TEST(test_sm_TAKING_OFF_height_reached_goes_to_HOVERING_with_blue_led);
+    RUN_TEST(test_sm_TAKING_OFF_does_not_trust_the_height_of_the_previous_target);
     RUN_TEST(test_sm_HOVERING_keeps_the_altitude_and_does_not_move);
-    RUN_TEST(test_sm_EXTERNAL_CONTROL_follows_cmd_vel);
-    RUN_TEST(test_sm_LANDING_targets_the_ground_without_moving);
-    RUN_TEST(test_sm_DISARMING_stops_and_disarms_the_motors);
-    RUN_TEST(test_sm_ERROR_is_final);
-    RUN_TEST(test_sm_full_flight_until_TAKING_OFF);
     RUN_TEST(test_sm_HOVERING_new_cmd_vel_goes_to_EXTERNAL_CONTROL);
     RUN_TEST(test_sm_HOVERING_land_goes_to_LANDING);
+    RUN_TEST(test_sm_HOVERING_land_has_priority_over_cmd_vel);
+    RUN_TEST(test_sm_EXTERNAL_CONTROL_follows_cmd_vel);
+    RUN_TEST(test_sm_EXTERNAL_CONTROL_uses_the_cmd_vel_expire_time);
     RUN_TEST(test_sm_EXTERNAL_CONTROL_old_cmd_vel_goes_to_HOVERING);
+    RUN_TEST(test_sm_EXTERNAL_CONTROL_land_goes_to_LANDING);
+    RUN_TEST(test_sm_LANDING_targets_the_ground_without_moving);
+    RUN_TEST(test_sm_LANDING_stays_and_blinks_the_red_led_while_flying);
     RUN_TEST(test_sm_LANDING_on_the_ground_goes_to_DISARMING);
-
-    RUN_TEST(test_takeoff_check_true_at_the_altitude);
-    RUN_TEST(test_takeoff_check_true_inside_5_percent);
-    RUN_TEST(test_takeoff_check_false_outside_5_percent);
-    RUN_TEST(test_takeoff_check_false_on_the_ground);
+    RUN_TEST(test_sm_LANDING_does_not_trust_the_height_of_the_previous_target);
+    RUN_TEST(test_sm_DISARMING_stops_and_disarms_the_motors);
+    RUN_TEST(test_sm_DISARMING_goes_back_to_ARMING_with_green_led);
+    RUN_TEST(test_sm_ERROR_is_final);
+    RUN_TEST(test_sm_full_flight);
 
     RUN_TEST(test_task_start_creates_the_task_with_the_menuconfig_values);
     RUN_TEST(test_task_start_does_not_init_by_itself);

@@ -29,13 +29,17 @@
 
 /* Fake gains of the attitude controller */
 static GAINS fake_gains;
-static const GAINS START = { 100.0f, 2.0f, 10.0f, 200.0f, 400.0f, 2400.0f };
+static const GAINS START = {
+    .kp_h = 100.0f, .kd_h = 110.0f, .kp_angle = 2.0f, .kp_rate = 10.0f,
+    .max_rate = 200.0f, .max_pow_rpy = 400.0f, .base = 2400.0f
+};
 
 void get_gains(GAINS *out) { *out = fake_gains; }
 void set_gains(const GAINS *in) { fake_gains = *in; }
 
 static void assert_gains_equal(const GAINS *e, const GAINS *a) {
     TEST_ASSERT_EQUAL_FLOAT(e->kp_h, a->kp_h);
+    TEST_ASSERT_EQUAL_FLOAT(e->kd_h, a->kd_h);
     TEST_ASSERT_EQUAL_FLOAT(e->kp_angle, a->kp_angle);
     TEST_ASSERT_EQUAL_FLOAT(e->kp_rate, a->kp_rate);
     TEST_ASSERT_EQUAL_FLOAT(e->max_rate, a->max_rate);
@@ -63,12 +67,23 @@ void test_cmd_change_one_gain(void) {
 
 void test_cmd_every_gain_name(void) {
     TEST_ASSERT_TRUE(tuning_parse_line("kp_h 150"));
+    TEST_ASSERT_TRUE(tuning_parse_line("kd_h 90"));
     TEST_ASSERT_TRUE(tuning_parse_line("kp_angle 3"));
     TEST_ASSERT_TRUE(tuning_parse_line("kp_rate 7"));
     TEST_ASSERT_TRUE(tuning_parse_line("max_rate 150"));
     TEST_ASSERT_TRUE(tuning_parse_line("max_pow 300"));
     TEST_ASSERT_TRUE(tuning_parse_line("base 2390"));
-    GAINS e = { 150.0f, 3.0f, 7.0f, 150.0f, 300.0f, 2390.0f };
+    GAINS e = {
+        .kp_h = 150.0f, .kd_h = 90.0f, .kp_angle = 3.0f, .kp_rate = 7.0f,
+        .max_rate = 150.0f, .max_pow_rpy = 300.0f, .base = 2390.0f
+    };
+    assert_gains_equal(&e, &fake_gains);
+}
+
+void test_cmd_kd_h_only_changes_kd_h(void) {
+    TEST_ASSERT_TRUE(tuning_parse_line("kd_h 250"));
+    GAINS e = START;
+    e.kd_h = 250.0f;
     assert_gains_equal(&e, &fake_gains);
 }
 
@@ -120,6 +135,8 @@ void test_bad_not_a_number(void) {
 void test_bad_out_of_range(void) {
     TEST_ASSERT_FALSE(tuning_parse_line("kp_rate -1"));
     TEST_ASSERT_FALSE(tuning_parse_line("base 5000"));
+    TEST_ASSERT_FALSE(tuning_parse_line("kd_h -1"));
+    TEST_ASSERT_FALSE(tuning_parse_line("kd_h 5001"));
     assert_gains_equal(&START, &fake_gains);
 }
 
@@ -157,6 +174,7 @@ int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_cmd_change_one_gain);
     RUN_TEST(test_cmd_every_gain_name);
+    RUN_TEST(test_cmd_kd_h_only_changes_kd_h);
     RUN_TEST(test_cmd_equal_sign_and_upper_case);
     RUN_TEST(test_cmd_extra_spaces);
     RUN_TEST(test_cmd_get_and_help_do_not_change_gains);

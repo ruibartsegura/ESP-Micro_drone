@@ -24,7 +24,7 @@
  *   - fake_bmp_*(): (hardware) the simulated BMP180.
  *   - setUp() / tearDown(): reset the mocks, the module and the state.
  *   - test_init_*: height_init() and height_test().
- *   - test_data_*: get_height_data().
+ *   - test_data_*: (hardware) latest_data, the last sample of h_sample().
  *   - test_sample_*: (hardware) h_sample(), reading of the sensor.
  *   - test_task_*: the FreeRTOS task.
  *   - main(): runs all the tests.
@@ -203,41 +203,28 @@ void test_init_missing_sensor_reports_the_failure(void) {
 #endif
 
 /* ------------------------------------------------------------------ */
-/*                          get_height_data                           */
+/*                    latest_data (last altitude)                     */
 /* ------------------------------------------------------------------ */
-void test_data_null_is_invalid_arg(void) {
+#ifndef CONFIG_SIMULATION_ON
+void test_data_keeps_the_last_altitude(void) {
     height_init();
-    TEST_ASSERT_EQUAL_INT(ESP_ERR_INVALID_ARG, get_height_data(NULL));
+    h_sample();
+    TEST_ASSERT_FLOAT_WITHIN(1.0f, expected_alt(), (float)latest_data.pose.position.z);
 }
 
-void test_data_before_init_is_invalid_state(void) {
-    geometry_msgs__msg__PoseStamped d;
-    TEST_ASSERT_EQUAL_INT(ESP_ERR_INVALID_STATE, get_height_data(&d));
-}
-
-void test_data_after_init_is_ok(void) {
-    geometry_msgs__msg__PoseStamped d;
+void test_data_keeps_the_time_of_the_sample(void) {
     height_init();
-    TEST_ASSERT_EQUAL_INT(ESP_OK, get_height_data(&d));
+    mock_time_us = 2500000;   /* 2.5 s */
+    h_sample();
+    TEST_ASSERT_EQUAL_INT32(2, latest_data.header.stamp.sec);
+    TEST_ASSERT_EQUAL_UINT32(500000000u, latest_data.header.stamp.nanosec);
 }
 
 void test_data_uses_the_critical_section(void) {
-    geometry_msgs__msg__PoseStamped d;
     height_init();
     int before = mock_critical_enter_count;
-    get_height_data(&d);
-    TEST_ASSERT_TRUE(mock_critical_enter_count > before);
-}
-
-#ifndef CONFIG_SIMULATION_ON
-/* [BUG] h_sample() saves the altitude with set_h() but never updates
- * latest_data, so get_height_data() always returns 0. */
-void test_data_returns_the_last_altitude(void) {
-    geometry_msgs__msg__PoseStamped d;
-    height_init();
     h_sample();
-    get_height_data(&d);
-    TEST_ASSERT_FLOAT_WITHIN(1.0f, expected_alt(), (float)d.pose.position.z);
+    TEST_ASSERT_TRUE(mock_critical_enter_count > before);
 }
 
 /* ------------------------------------------------------------------ */
@@ -378,12 +365,10 @@ int main(void) {
     RUN_TEST(test_init_missing_sensor_reports_the_failure);
 #endif
 
-    RUN_TEST(test_data_null_is_invalid_arg);
-    RUN_TEST(test_data_before_init_is_invalid_state);
-    RUN_TEST(test_data_after_init_is_ok);
-    RUN_TEST(test_data_uses_the_critical_section);
 #ifndef CONFIG_SIMULATION_ON
-    RUN_TEST(test_data_returns_the_last_altitude);
+    RUN_TEST(test_data_keeps_the_last_altitude);
+    RUN_TEST(test_data_keeps_the_time_of_the_sample);
+    RUN_TEST(test_data_uses_the_critical_section);
 
     RUN_TEST(test_sample_saves_the_altitude_in_the_state);
     RUN_TEST(test_sample_uses_sea_level_as_reference);

@@ -24,9 +24,9 @@
 #include <unistd.h>
 #include <time.h>
 
-float hov_h = CONFIG_HOVERING_H / 100.0f; // cm -> m
-float vel_max = CONFIG_VEL_MAX / 100.0f; // ms (float division: 2 / 100 was 0)
-bool land_on_site = CONFIG_LAND_ON_SITE;
+static float hov_h = CONFIG_HOVERING_H / 100.0f; // cm -> m
+static float vel_max = CONFIG_VEL_MAX / 100.0f; // ms (float division: 2 / 100 was 0)
+static bool land_on_site = CONFIG_LAND_ON_SITE;
 
 void set_hovering_h(float h) {
     hov_h = h;

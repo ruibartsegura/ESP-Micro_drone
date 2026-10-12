@@ -49,7 +49,10 @@
 #define CONFIG_TUNING_TASK_STACK   3072
 #define CONFIG_TUNING_TASK_PRIO    1
 #define CONFIG_MICRO_ROS_STACK     19200
-#define CONFIG_MICRO_ROS_TASK_PRIO 4
+#define CONFIG_MICRO_ROS_TASK_PRIO 6
+
+/* ---- Tuning (gains from the serial console) ---- */
+#define CONFIG_GAINS_TUNE_ON 1
 
 /* ---- micro-ROS ---- */
 #define CONFIG_MICRO_ROS_ESP_XRCE_DDS_MIDDLEWARE 1

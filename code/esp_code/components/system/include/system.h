@@ -42,7 +42,4 @@ void system_start(void);
 
 ATTITUDE_TARGET get_attitude();
 
-// Checkers
-bool check_takeOff_2_hov(float h);
-
 #endif //SYSTEM_H

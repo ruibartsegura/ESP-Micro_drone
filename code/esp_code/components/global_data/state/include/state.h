@@ -29,8 +29,8 @@ typedef struct {
     vec3_t pos;      // Position (m)
     quat_t q;        // Orientation
     vec3_t vel_lin;  // Vel lineal (m/s)
-    vec3_t vel_ang;  // Vel angular (rad/s)
-    vec3_t acc_lin;  // Acc lineal (m/s^2)
+    vec3_t vel_ang;  // Vel angular (°/s)
+    vec3_t acc_lin;  // Acc lineal (g)
     int64_t t_stamp_imu; // Time (ns)
     int64_t t_stamp_h; // Time (ns)
 } state_t;
@@ -57,8 +57,10 @@ void set_orientation(float qx, float qy, float qz, float qw);
 void set_vel_lin(float vx, float vy, float vz);
 void set_vel_ang(float wx, float wy, float wz);
 void set_acc_lin(float ax, float ay, float az);
+
 void set_time_imu(int64_t t);
 void set_time_height(int64_t t);
+
 void set_sm_state(sm_states_t sm);
 
 // Getters
@@ -67,9 +69,12 @@ void get_orientation(quat_t *out);
 void get_vel_lin(vec3_t *out);
 void get_vel_ang(vec3_t *out);
 void get_acc_lin(vec3_t *out);
+
 void get_time_imu(int64_t *out);
 void get_time_height(int64_t *out);
+
 void get_sm_state(sm_states_t *out);
+
 void get_global_state(state_t *out);
 
 #endif // STATE_H

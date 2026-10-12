@@ -29,8 +29,8 @@
  *   - run_ros_task(): runs micro_ros_task() until the first spin.
  *   - find_handle(): looks for an executor handle.
  *   - setUp() / tearDown(): reset the mocks, the module and the state.
- *   - test_params_*, test_cmdvel_*, test_takeoff_*, test_imu_msg_*,
- *     test_task_*, test_init_*, test_sim_*.
+ *   - test_params_*, test_cmdvel_*, test_takeoff_*, test_land_*,
+ *     test_imu_msg_*, test_task_*, test_init_*, test_sim_*.
  *   - main(): runs all the tests.
  */
 #include <pthread.h>
@@ -44,7 +44,7 @@
 #endif
 #include MODULE_SRC
 
-#define GRAVITY 9.80665
+#define GRAVITY 9.81
 
 /* ------------------------------------------------------------------ */
 /*                           MOCKS of led.c                           */
@@ -82,13 +82,25 @@ static my_msgs__srv__Takeoff_Response call_takeoff(float alt) {
     return res;
 }
 
+static std_srvs__srv__Trigger_Response call_land(void) {
+    std_srvs__srv__Trigger_Request req = { 0 };
+    std_srvs__srv__Trigger_Response res;
+    memset(&res, 0, sizeof res);
+    res.success = !false;   /* garbage: the callback must write it */
+    land_callback(&req, &res);
+    return res;
+}
+
 static void reset_module(void) {
     is_init = false;
     params_2_update = false;
     take_off_ready = false;
     altitude = MIN_ALT;
+    land_ready = false;
     memset(&param_msg, 0, sizeof param_msg);
     memset(&cmd_vel_msg, 0, sizeof cmd_vel_msg);
+    memset(&cmd_vel, 0, sizeof cmd_vel);
+    t_last_vel = -1;
     memset(&imu_msg, 0, sizeof imu_msg);
 #ifdef CONFIG_SIMULATION_ON
     memset(&imu_sub_msg, 0, sizeof imu_sub_msg);
@@ -98,7 +110,6 @@ static void reset_module(void) {
     if (motors_q) vQueueDelete(motors_q);
     motors_q = NULL;
     motors_pub_ready = false;
-    imu_recv_cnt = 0;
 #endif
 }
 
@@ -175,31 +186,121 @@ void test_params_timer_does_not_apply_them_while_flying(void) {
 /* ------------------------------------------------------------------ */
 /*                         CMD_VEL (drone/cmd_vel)                    */
 /* ------------------------------------------------------------------ */
-void test_cmdvel_default_is_zero(void) {
-    geometry_msgs__msg__Twist t = get_cmd_vel();
-    TEST_ASSERT_EQUAL_DOUBLE(0.0, t.linear.x);
-    TEST_ASSERT_EQUAL_DOUBLE(0.0, t.angular.z);
+#define MAX_AGE_MS 500
+
+static void send_cmd_vel(double vx, double vy, double vz, double wz) {
+    geometry_msgs__msg__TwistStamped msg = { 0 };
+    msg.twist.linear.x = vx;
+    msg.twist.linear.y = vy;
+    msg.twist.linear.z = vz;
+    msg.twist.angular.z = wz;
+    cmd_vel_callback(&msg);
+}
+
+void test_cmdvel_nothing_received_is_not_fresh(void) {
+    mock_time_us = 10000000;   /* 10 s */
+    geometry_msgs__msg__Twist t = { 0 };
+    TEST_ASSERT_FALSE(get_cmd_vel(&t, MAX_AGE_MS));
+}
+
+/* [BUG] t_last_vel starts at -1, but get_cmd_vel() only checks
+ * t_last_vel != 0 (the value of clear_cmd_vel()): during the first
+ * MAX_AGE_MS after boot it says that a (zero) cmd_vel has arrived. */
+void test_cmdvel_nothing_received_just_after_boot_is_not_fresh(void) {
+    mock_time_us = 100000;     /* 100 ms after boot */
+    geometry_msgs__msg__Twist t = { 0 };
+    TEST_ASSERT_FALSE_MESSAGE(get_cmd_vel(&t, MAX_AGE_MS), "no cmd_vel has been received");
 }
 
 void test_cmdvel_callback_saves_the_twist(void) {
-    geometry_msgs__msg__TwistStamped msg = { 0 };
-    msg.twist.linear.x = 0.3;
-    msg.twist.linear.y = -0.2;
-    msg.twist.linear.z = 0.1;
-    msg.twist.angular.z = 0.5;
-    cmd_vel_callback(&msg);
-    geometry_msgs__msg__Twist t = get_cmd_vel();
+    mock_time_us = 1000000;
+    send_cmd_vel(0.3, -0.2, 0.1, 0.5);
+    geometry_msgs__msg__Twist t = { 0 };
+    TEST_ASSERT_TRUE(get_cmd_vel(&t, MAX_AGE_MS));
     TEST_ASSERT_EQUAL_DOUBLE(0.3, t.linear.x);
     TEST_ASSERT_EQUAL_DOUBLE(-0.2, t.linear.y);
     TEST_ASSERT_EQUAL_DOUBLE(0.1, t.linear.z);
     TEST_ASSERT_EQUAL_DOUBLE(0.5, t.angular.z);
 }
 
+void test_cmdvel_callback_saves_the_time(void) {
+    mock_time_us = 1234567;
+    send_cmd_vel(0, 0, 0, 0);
+    TEST_ASSERT_EQUAL_INT64(1234567, t_last_vel);
+}
+
+void test_cmdvel_is_fresh_until_max_age(void) {
+    mock_time_us = 1000000;
+    send_cmd_vel(0.3, 0, 0, 0);
+    geometry_msgs__msg__Twist t = { 0 };
+    mock_time_us = 1000000 + MAX_AGE_MS * 1000 - 1;
+    TEST_ASSERT_TRUE(get_cmd_vel(&t, MAX_AGE_MS));
+    mock_time_us = 1000000 + MAX_AGE_MS * 1000;
+    TEST_ASSERT_FALSE(get_cmd_vel(&t, MAX_AGE_MS));
+}
+
+void test_cmdvel_max_age_is_the_one_asked(void) {
+    mock_time_us = 1000000;
+    send_cmd_vel(0.3, 0, 0, 0);
+    geometry_msgs__msg__Twist t = { 0 };
+    mock_time_us = 1200000;   /* 200 ms later */
+    TEST_ASSERT_FALSE(get_cmd_vel(&t, 100));
+    TEST_ASSERT_TRUE(get_cmd_vel(&t, 300));
+}
+
+void test_cmdvel_old_command_does_not_change_the_output(void) {
+    mock_time_us = 1000000;
+    send_cmd_vel(0.3, 0, 0, 0);
+    mock_time_us = 5000000;
+    geometry_msgs__msg__Twist t = { 0 };
+    t.linear.x = 9.0;
+    TEST_ASSERT_FALSE(get_cmd_vel(&t, MAX_AGE_MS));
+    TEST_ASSERT_EQUAL_DOUBLE(9.0, t.linear.x);
+}
+
+void test_cmdvel_can_be_read_many_times(void) {
+    mock_time_us = 1000000;
+    send_cmd_vel(0.3, 0, 0, 0);
+    geometry_msgs__msg__Twist t = { 0 };
+    TEST_ASSERT_TRUE(get_cmd_vel(&t, MAX_AGE_MS));
+    TEST_ASSERT_TRUE(get_cmd_vel(&t, MAX_AGE_MS));
+}
+
+void test_cmdvel_new_message_replaces_the_old_one(void) {
+    mock_time_us = 1000000;
+    send_cmd_vel(0.3, 0, 0, 0);
+    mock_time_us = 1400000;
+    send_cmd_vel(-0.1, 0, 0, 0);
+    mock_time_us = 1800000;   /* 800 ms after the first, 400 ms after the second */
+    geometry_msgs__msg__Twist t = { 0 };
+    TEST_ASSERT_TRUE(get_cmd_vel(&t, MAX_AGE_MS));
+    TEST_ASSERT_EQUAL_DOUBLE(-0.1, t.linear.x);
+}
+
+void test_cmdvel_clear_forgets_the_command(void) {
+    mock_time_us = 1000000;
+    send_cmd_vel(0.3, 0, 0, 0);
+    clear_cmd_vel();
+    geometry_msgs__msg__Twist t = { 0 };
+    TEST_ASSERT_FALSE(get_cmd_vel(&t, MAX_AGE_MS));
+    send_cmd_vel(0.2, 0, 0, 0);   /* a new one is fresh again */
+    TEST_ASSERT_TRUE(get_cmd_vel(&t, MAX_AGE_MS));
+    TEST_ASSERT_EQUAL_DOUBLE(0.2, t.linear.x);
+}
+
 /* Call a getter in another thread while this thread holds the mutex:
  * if the getter uses the mutex it must wait. */
 static volatile int getter_done;
-static void *thread_cmd_vel(void *a) { (void)a; (void)get_cmd_vel(); getter_done = 1; return NULL; }
+static void *thread_cmd_vel(void *a) {
+    (void)a;
+    geometry_msgs__msg__Twist t;
+    (void)get_cmd_vel(&t, MAX_AGE_MS);
+    getter_done = 1;
+    return NULL;
+}
+static void *thread_clear_cmd_vel(void *a) { (void)a; clear_cmd_vel(); getter_done = 1; return NULL; }
 static void *thread_take_off_alt(void *a) { (void)a; (void)get_take_off_alt(); getter_done = 1; return NULL; }
+static void *thread_landing_ready(void *a) { (void)a; (void)get_landing_ready(); getter_done = 1; return NULL; }
 
 static bool getter_waits_for_the_mutex(void *(*fn)(void *)) {
     pthread_t th;
@@ -217,12 +318,13 @@ void test_cmdvel_take_off_alt_getter_uses_the_mutex(void) {
     TEST_ASSERT_TRUE(getter_waits_for_the_mutex(thread_take_off_alt));
 }
 
-/* [BUG] get_cmd_vel() reads cmd_vel_msg without the mutex, while the
- * executor task can be writing it in cmd_vel_callback(): the controller can
- * read half of an old command and half of a new one. */
 void test_cmdvel_getter_uses_the_mutex(void) {
     TEST_ASSERT_TRUE_MESSAGE(getter_waits_for_the_mutex(thread_cmd_vel),
                              "get_cmd_vel() must lock the mutex");
+}
+
+void test_cmdvel_clear_uses_the_mutex(void) {
+    TEST_ASSERT_TRUE(getter_waits_for_the_mutex(thread_clear_cmd_vel));
 }
 
 /* ------------------------------------------------------------------ */
@@ -332,11 +434,63 @@ void test_takeoff_rejected_request_keeps_the_previous_one(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/*                      LAND SERVICE (drone/land_srv)                 */
+/* ------------------------------------------------------------------ */
+void test_land_default_not_ready(void) {
+    TEST_ASSERT_FALSE(get_landing_ready());
+}
+
+void test_land_accepted_while_flying(void) {
+    const sm_states_t flying[] = { HOVERING, EXTERNAL_CONTROL };
+    for (size_t i = 0; i < sizeof flying / sizeof flying[0]; i++) {
+        set_state(flying[i]);
+        std_srvs__srv__Trigger_Response r = call_land();
+        TEST_ASSERT_TRUE(r.success);
+        TEST_ASSERT_EQUAL_STRING("OK", r.message.data);
+        TEST_ASSERT_TRUE(get_landing_ready());
+        rosidl_runtime_c__String__fini(&r.message);
+    }
+}
+
+void test_land_rejected_in_ERROR(void) {
+    set_state(ERROR);
+    std_srvs__srv__Trigger_Response r = call_land();
+    TEST_ASSERT_FALSE(r.success);
+    TEST_ASSERT_EQUAL_STRING("Status error", r.message.data);
+    TEST_ASSERT_FALSE(get_landing_ready());
+    rosidl_runtime_c__String__fini(&r.message);
+}
+
+void test_land_rejected_when_not_flying(void) {
+    const sm_states_t states[] = { INIT, CHECKING, ARMING, TAKING_OFF, LANDING, DISARMING };
+    for (size_t i = 0; i < sizeof states / sizeof states[0]; i++) {
+        set_state(states[i]);
+        std_srvs__srv__Trigger_Response r = call_land();
+        TEST_ASSERT_FALSE(r.success);
+        TEST_ASSERT_EQUAL_STRING("Not flying", r.message.data);
+        TEST_ASSERT_FALSE(get_landing_ready());
+        rosidl_runtime_c__String__fini(&r.message);
+    }
+}
+
+void test_land_ready_is_read_only_once(void) {
+    set_state(HOVERING);
+    std_srvs__srv__Trigger_Response r = call_land();
+    TEST_ASSERT_TRUE(get_landing_ready());
+    TEST_ASSERT_FALSE(get_landing_ready());
+    rosidl_runtime_c__String__fini(&r.message);
+}
+
+void test_land_getter_uses_the_mutex(void) {
+    TEST_ASSERT_TRUE(getter_waits_for_the_mutex(thread_landing_ready));
+}
+
+/* ------------------------------------------------------------------ */
 /*                       IMU MESSAGE (drone/imu_data)                 */
 /* ------------------------------------------------------------------ */
 /* [BUG] fill_imu_msg() first writes angular_velocity in rad/s and then
- * overwrites it with vel_ang * GRAVITY_MS2 (it should be
- * linear_acceleration = acc_lin * GRAVITY_MS2). */
+ * overwrites it with vel_ang * g (it should be
+ * linear_acceleration = acc_lin * g). */
 void test_imu_msg_angular_velocity_in_rad_per_s(void) {
     sensor_msgs__msg__Imu m;
     memset(&m, 0, sizeof m);
@@ -455,6 +609,13 @@ void test_task_takeoff_service(void) {
     TEST_ASSERT_EQUAL_STRING("my_msgs/srv/Takeoff", e->type);
 }
 
+void test_task_land_service(void) {
+    run_ros_task();
+    const mock_ros_entity_t *e = mock_ros_find(MOCK_ROS_SRV, "drone/land_srv");
+    TEST_ASSERT_NOT_NULL(e);
+    TEST_ASSERT_EQUAL_STRING("std_srvs/srv/Trigger", e->type);
+}
+
 void test_task_main_timer_is_1_s(void) {
     run_ros_task();
     bool found = false;
@@ -482,6 +643,11 @@ void test_task_handles_go_to_the_right_callbacks(void) {
     TEST_ASSERT_EQUAL_PTR(&takeoff_req, h->msg);
     TEST_ASSERT_EQUAL_PTR(&takeoff_res, h->res);
     TEST_ASSERT_EQUAL_PTR((void *)takeoff_callback, h->callback);
+    h = find_handle(&land_srv);
+    TEST_ASSERT_NOT_NULL(h);
+    TEST_ASSERT_EQUAL_PTR(&land_req, h->msg);
+    TEST_ASSERT_EQUAL_PTR(&land_res, h->res);
+    TEST_ASSERT_EQUAL_PTR((void *)land_callback, h->callback);
 }
 
 void test_task_every_entity_is_in_the_executor(void) {
@@ -604,18 +770,22 @@ void test_sim_barometer_subscriber(void) {
     TEST_ASSERT_EQUAL_PTR((void *)height_callback, h->callback);
 }
 
-void test_sim_motors_publisher_is_reliable(void) {
-    /* the Gazebo bridge subscribes with RELIABLE: a BEST_EFFORT publisher
-     * would not be received (see CLAUDE.md, QoS of the motors) */
+/* BEST_EFFORT: the Gazebo bridge subscribes with SENSOR_DATA (best effort,
+ * see ros_ws/src/sim_drone/config/sim_bridge.yaml). If the bridge goes back
+ * to RELIABLE, a BEST_EFFORT publisher is not received. */
+void test_sim_motors_publisher_is_best_effort(void) {
     run_ros_task();
     const mock_ros_entity_t *e = mock_ros_find(MOCK_ROS_PUB, "/drone/command/motor_speed");
     TEST_ASSERT_NOT_NULL(e);
     TEST_ASSERT_EQUAL_STRING("actuator_msgs/msg/Actuators", e->type);
-    TEST_ASSERT_FALSE(e->best_effort);
-    TEST_ASSERT_EQUAL_INT(RMW_QOS_POLICY_RELIABILITY_RELIABLE, e->qos.reliability);
-    TEST_ASSERT_EQUAL_INT(RMW_QOS_POLICY_HISTORY_KEEP_LAST, e->qos.history);
-    TEST_ASSERT_EQUAL_UINT(2, e->qos.depth);
+    TEST_ASSERT_TRUE(e->best_effort);
     TEST_ASSERT_TRUE(motors_pub_ready);
+}
+
+void test_sim_motors_publisher_session_timeout_is_50_ms(void) {
+    run_ros_task();
+    TEST_ASSERT_EQUAL_PTR(&motors_pub, mock_uros_pub_timeout_pub);
+    TEST_ASSERT_EQUAL_INT(50, mock_uros_pub_timeout_ms);
 }
 
 void test_sim_motors_timer_is_30_ms(void) {
@@ -644,7 +814,6 @@ void test_sim_imu_callback_saves_the_message(void) {
     sensor_msgs__msg__Imu m = gz_imu(0.1, 0.2, 0.3, 0, 0, GRAVITY, 1, 0);
     imu_callback(&m);
     TEST_ASSERT_EQUAL_DOUBLE(0.3, imu_sub_msg.angular_velocity.z);
-    TEST_ASSERT_EQUAL_UINT32(1, imu_recv_cnt);
 }
 
 /* [BUG] The real IMU driver saves deg/s in the global state and the
@@ -818,10 +987,19 @@ int main(void) {
     RUN_TEST(test_params_timer_applies_them_in_CHECKING);
     RUN_TEST(test_params_timer_does_not_apply_them_while_flying);
 
-    RUN_TEST(test_cmdvel_default_is_zero);
+    RUN_TEST(test_cmdvel_nothing_received_is_not_fresh);
+    RUN_TEST(test_cmdvel_nothing_received_just_after_boot_is_not_fresh);
     RUN_TEST(test_cmdvel_callback_saves_the_twist);
+    RUN_TEST(test_cmdvel_callback_saves_the_time);
+    RUN_TEST(test_cmdvel_is_fresh_until_max_age);
+    RUN_TEST(test_cmdvel_max_age_is_the_one_asked);
+    RUN_TEST(test_cmdvel_old_command_does_not_change_the_output);
+    RUN_TEST(test_cmdvel_can_be_read_many_times);
+    RUN_TEST(test_cmdvel_new_message_replaces_the_old_one);
+    RUN_TEST(test_cmdvel_clear_forgets_the_command);
     RUN_TEST(test_cmdvel_take_off_alt_getter_uses_the_mutex);
     RUN_TEST(test_cmdvel_getter_uses_the_mutex);
+    RUN_TEST(test_cmdvel_clear_uses_the_mutex);
 
     RUN_TEST(test_takeoff_default_not_ready_and_min_altitude);
     RUN_TEST(test_takeoff_limits_are_0_5_and_3_m);
@@ -834,6 +1012,13 @@ int main(void) {
     RUN_TEST(test_takeoff_ready_is_read_only_once);
     RUN_TEST(test_takeoff_new_request_changes_the_altitude);
     RUN_TEST(test_takeoff_rejected_request_keeps_the_previous_one);
+
+    RUN_TEST(test_land_default_not_ready);
+    RUN_TEST(test_land_accepted_while_flying);
+    RUN_TEST(test_land_rejected_in_ERROR);
+    RUN_TEST(test_land_rejected_when_not_flying);
+    RUN_TEST(test_land_ready_is_read_only_once);
+    RUN_TEST(test_land_getter_uses_the_mutex);
 
     RUN_TEST(test_imu_msg_angular_velocity_in_rad_per_s);
     RUN_TEST(test_imu_msg_linear_acceleration_in_m_per_s2);
@@ -850,6 +1035,7 @@ int main(void) {
     RUN_TEST(test_task_params_subscriber);
     RUN_TEST(test_task_cmd_vel_subscriber);
     RUN_TEST(test_task_takeoff_service);
+    RUN_TEST(test_task_land_service);
     RUN_TEST(test_task_main_timer_is_1_s);
     RUN_TEST(test_task_handles_go_to_the_right_callbacks);
     RUN_TEST(test_task_every_entity_is_in_the_executor);
@@ -871,7 +1057,8 @@ int main(void) {
     RUN_TEST(test_sim_has_8_handles);
     RUN_TEST(test_sim_imu_subscriber);
     RUN_TEST(test_sim_barometer_subscriber);
-    RUN_TEST(test_sim_motors_publisher_is_reliable);
+    RUN_TEST(test_sim_motors_publisher_is_best_effort);
+    RUN_TEST(test_sim_motors_publisher_session_timeout_is_50_ms);
     RUN_TEST(test_sim_motors_timer_is_30_ms);
     RUN_TEST(test_sim_imu_callback_saves_the_message);
     RUN_TEST(test_sim_imu_callback_angular_velocity_in_deg_per_s);

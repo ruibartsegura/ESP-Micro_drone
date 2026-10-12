@@ -12,8 +12,10 @@
  *     3. Outer loop: cmd_vel_2_RP() (velocity -> target roll / pitch).
  *     4. Inner loop: angular rate -> motor mix (roll / pitch / yaw).
  *     5. Height: collective thrust and check_h_reached().
- *     6. Height estimation: get_h() (accelerometer + barometer).
- *     7. Task and init.
+ *     6. Height estimation: get_h() (accelerometer + barometer) and
+ *        get_vel_z().
+ *     7. Gains: get_gains() / set_gains().
+ *     8. Task and init.
  *
  *   The real state.c is linked (the controller reads the IMU and the
  *   height from the global state). get_attitude() (system.c) and
@@ -39,11 +41,11 @@
  * Functions:
  *   - get_attitude(), set_motor_speed(): mocks of system.c and motors.c.
  *   - decompose(): splits the 4 motor values into h, r, p, y.
- *   - set_tilt(), step(), settle(): helpers to prepare the IMU and run the
- *     controller.
+ *   - set_tilt(), set_baro(), step(), settle(): helpers to prepare the IMU
+ *     and the barometer and run the controller.
  *   - setUp() / tearDown(): reset the mocks, the controller and the state.
  *   - test_comp_*, test_est_*, test_ext_*, test_int_*, test_h_*, test_hest_*,
- *     test_task_*.
+ *     test_gains_*, test_task_*.
  *   - main(): runs all the tests.
  */
 #include "unity.h"
@@ -99,6 +101,14 @@ static Mix decompose(void) {
 }
 
 static int64_t t_now;
+static float   baro;   /* height of the fake barometer (m) */
+
+/* The barometer task writes the height in the state every 10 ms, faster
+ * than the controller (15 ms), so step() writes it again before each cycle. */
+static void set_baro(float h) {
+    baro = h;
+    set_h(h);
+}
 
 /* Accelerometer (in g) of a drone with this roll and pitch (degrees). */
 static void set_tilt(float roll_deg, float pitch_deg) {
@@ -107,10 +117,12 @@ static void set_tilt(float roll_deg, float pitch_deg) {
                 cosf(RAD(pitch_deg)) * cosf(RAD(roll_deg)));
 }
 
-/* One control cycle 15 ms later. */
+/* One control cycle 15 ms later (IMU time and esp_timer). */
 static void step(void) {
     t_now += DT_NS;
+    mock_time_us += DT_NS / 1000;
     set_time_imu(t_now);
+    set_h(baro);
     control_attitude();
 }
 
@@ -123,8 +135,12 @@ static void settle(void) {
 /* One control cycle with the same IMU timestamp: dt = 0, no gyro integration. */
 static void step_same_time(void) {
     set_time_imu(last_rpy.t_stamp);
+    set_h(baro);
     control_attitude();
 }
+
+static GAINS default_gains;
+static bool  default_gains_saved = false;
 
 void setUp(void) {
     mock_reset_all();
@@ -134,12 +150,23 @@ void setUp(void) {
     motor_calls = 0;
     memset(&last_rpy, 0, sizeof last_rpy);
     err_h = 0.0f;
+    h_reached = false;
+    is_init = false;
+    t_h_reached_us = -1;
+    baro = 0.0f;
+    mock_time_us = 1000000;  /* 1 s */
+    /* Default gains (a test can change them with set_gains()) */
+    if (!default_gains_saved) {
+        get_gains(&default_gains);
+        default_gains_saved = true;
+    }
+    set_gains(&default_gains);
     t_now = 1000000000LL;   /* 1 s */
     /* Height filter already started, with the ground at 0 m */
     h_init = true;
     h0 = 0.0f;
     h_est = 0.0f;
-    last_vel_Z = 0.0f;
+    last_vel_z = 0.0f;
     last_t_h = t_now;
     last_rpy.t_stamp = t_now;
     set_time_imu(t_now);
@@ -287,10 +314,6 @@ static geometry_msgs__msg__Twist vel(double vx, double vy) {
     return t;
 }
 
-/* Drag model: tan(angle) = Cd * rho * A * v^2 / (2 m g) */
-static float drag_angle(float v) {
-    return atan2f(K_CD * K_RHO * K_A * v * v, 2.0f * K_M * K_G);
-}
 
 void test_ext_zero_velocity_gives_zero_angles(void) {
     float r = 9, p = 9;
@@ -299,12 +322,19 @@ void test_ext_zero_velocity_gives_zero_angles(void) {
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, p);
 }
 
-void test_ext_matches_the_drag_model(void) {
-    float r, p;
-    cmd_vel_2_RP(&r, &p, vel(2.0, 0));
-    TEST_ASSERT_FLOAT_WITHIN(1e-5f, drag_angle(2.0f), p);
+/* Below MAX_ANGLE the angle is proportional to the velocity. */
+void test_ext_is_linear_below_the_limit(void) {
+    float r1, p1, r2, p2;
+    cmd_vel_2_RP(&r1, &p1, vel(1.0, 1.0));
+    cmd_vel_2_RP(&r2, &p2, vel(2.0, 2.0));
+    TEST_ASSERT_TRUE(fabsf(r1) > 0.0f && fabsf(r1) < MAX_ANGLE);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 2.0f * r1, r2);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 2.0f * p1, p2);
 }
 
+/* [BUG] cmd_vel_2_RP() computes the roll from vx and the pitch from vy
+ * (swapped): going forwards tilts the drone sideways. The same defect makes
+ * the next 3 tests and test_int_forward_command_moves_the_pitch_channel fail. */
 void test_ext_forward_velocity_gives_positive_pitch_only(void) {
     float r, p;
     cmd_vel_2_RP(&r, &p, vel(1.5, 0));
@@ -319,24 +349,23 @@ void test_ext_lateral_velocity_gives_positive_roll_only(void) {
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, p);
 }
 
-/* [BUG] The sign of the pitch comes from vy and the sign of the roll from
- * vx (sign_x and sign_y are swapped): going backwards (vx < 0, vy = 0)
- * gives the same pitch as going forwards. */
+/* [BUG] Roll and pitch swapped (see above): going backwards (vx < 0)
+ * changes the roll, not the pitch. */
 void test_ext_backward_velocity_gives_negative_pitch(void) {
     float r, p;
     cmd_vel_2_RP(&r, &p, vel(-1.5, 0));
     TEST_ASSERT_TRUE_MESSAGE(p < 0.0f, "backwards must tilt the other way");
 }
 
-/* [BUG] Same as above for the roll: moving left (vy < 0) gives a positive roll. */
+/* [BUG] Roll and pitch swapped (see above): moving left (vy < 0) changes
+ * the pitch, not the roll. */
 void test_ext_left_velocity_gives_negative_roll(void) {
     float r, p;
     cmd_vel_2_RP(&r, &p, vel(0, -1.5));
     TEST_ASSERT_TRUE_MESSAGE(r < 0.0f, "left must tilt the other way");
 }
 
-/* The output must be odd: f(-v) = -f(v) (with both components negative
- * the swapped signs of the [BUG] above cancel out, so this one passes). */
+/* The output must be odd: f(-v) = -f(v). */
 void test_ext_is_odd_symmetric(void) {
     for (double v = 0.25; v <= 4.0; v += 0.25) {
         float r1, p1, r2, p2;
@@ -349,11 +378,12 @@ void test_ext_is_odd_symmetric(void) {
 
 void test_ext_grows_with_the_speed(void) {
     float prev = -1.0f;
-    for (double v = 0.0; v <= 5.0; v += 0.25) {
+    for (double v = 0.0; v <= 10.0; v += 0.25) {
         float r, p;
         cmd_vel_2_RP(&r, &p, vel(v, 0));
-        TEST_ASSERT_TRUE(p >= prev);
-        prev = p;
+        float tilt = fabsf(r) + fabsf(p);   /* does not depend on the axis */
+        TEST_ASSERT_TRUE(tilt >= prev);
+        prev = tilt;
     }
 }
 
@@ -380,8 +410,8 @@ void test_ext_never_over_max_angle(void) {
         }
 }
 
-void test_ext_max_angle_is_30_deg(void) {
-    TEST_ASSERT_FLOAT_WITHIN(0.5f, 30.0f, (float)DEG(MAX_ANGLE));
+void test_ext_max_angle_is_20_deg(void) {
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, 20.0f, (float)DEG(MAX_ANGLE));
 }
 
 /* ------------------------------------------------------------------ */
@@ -407,10 +437,9 @@ void test_int_level_and_still_all_motors_are_equal(void) {
     for (int i = 1; i < N_MOTORS; i++) TEST_ASSERT_DOUBLE_WITHIN(1e-9, motors[0], motors[i]);
 }
 
-/* [BUG] throttle_base (2387, "Min throttle to hover") is never used: at the
- * target height the collective thrust is KP * 0 = 0 and the drone falls. */
+/* At the target height (and still) every motor gets the hover throttle. */
 void test_int_at_target_height_motors_get_the_hover_throttle(void) {
-    set_h(0.5f);
+    set_baro(0.5f);
     mock_target.h = 0.5f;
     settle();
     for (int i = 0; i < N_MOTORS; i++)
@@ -504,6 +533,7 @@ void test_int_pitch_tilt_is_opposed(void) {
     TEST_ASSERT_TRUE(decompose().p > 0.0);
 }
 
+/* [BUG] Roll and pitch swapped in cmd_vel_2_RP() (see test_ext_*). */
 void test_int_forward_command_moves_the_pitch_channel(void) {
     mock_target.cmd_vel = vel(2.0, 0);
     step_same_time();
@@ -513,13 +543,15 @@ void test_int_forward_command_moves_the_pitch_channel(void) {
 }
 
 void test_int_no_error_when_the_tilt_is_the_target(void) {
-    /* target pitch for 2 m/s, and the drone already has that pitch */
+    /* target roll / pitch for (2, 1) m/s, and the drone already has them */
     float tr, tp;
-    cmd_vel_2_RP(&tr, &tp, vel(2.0, 0));
-    mock_target.cmd_vel = vel(2.0, 0);
+    cmd_vel_2_RP(&tr, &tp, vel(2.0, 1.0));
+    mock_target.cmd_vel = vel(2.0, 1.0);
+    last_rpy.roll = (float)DEG(tr);
     last_rpy.pitch = (float)DEG(tp);
-    set_tilt(0.0f, (float)DEG(tp));
+    set_tilt((float)DEG(tr), (float)DEG(tp));
     step_same_time();
+    TEST_ASSERT_DOUBLE_WITHIN(0.5, 0.0, decompose().r);
     TEST_ASSERT_DOUBLE_WITHIN(0.5, 0.0, decompose().p);
 }
 
@@ -528,33 +560,33 @@ void test_int_no_error_when_the_tilt_is_the_target(void) {
 /* ------------------------------------------------------------------ */
 void test_h_below_target_more_thrust(void) {
     mock_target.h = 1.0f;
-    set_h(1.0f);
+    set_baro(1.0f);
     settle();
     double at = decompose().h;
-    set_h(0.5f);
+    set_baro(0.5f);
     settle();
     TEST_ASSERT_TRUE(decompose().h > at);
 }
 
 void test_h_above_target_less_thrust(void) {
     mock_target.h = 1.0f;
-    set_h(1.0f);
+    set_baro(1.0f);
     settle();
     double at = decompose().h;
-    set_h(1.5f);
+    set_baro(1.5f);
     settle();
     TEST_ASSERT_TRUE(decompose().h < at);
 }
 
 void test_h_thrust_is_proportional_to_the_error(void) {
     mock_target.h = 1.0f;
-    set_h(1.0f);
+    set_baro(1.0f);
     settle();
     double at = decompose().h;
-    set_h(0.8f);
+    set_baro(0.8f);
     settle();
     double d1 = decompose().h - at;
-    set_h(0.6f);
+    set_baro(0.6f);
     settle();
     double d2 = decompose().h - at;
     TEST_ASSERT_DOUBLE_WITHIN(1e-3, 2.0 * d1, d2);
@@ -562,38 +594,93 @@ void test_h_thrust_is_proportional_to_the_error(void) {
 
 void test_h_error_is_saved(void) {
     mock_target.h = 1.0f;
-    set_h(0.7f);
+    set_baro(0.7f);
     settle();
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.3f, err_h);
 }
 
 void test_h_reached_at_the_target(void) {
     mock_target.h = 1.0f;
-    set_h(1.0f);
+    set_baro(1.0f);
     settle();
     TEST_ASSERT_TRUE(check_h_reached());
 }
 
-void test_h_reached_inside_1_cm(void) {
+void test_h_reached_inside_diff_h_allowed(void) {
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.05f, DIFF_H_ALLOWED);
     mock_target.h = 1.0f;
-    set_h(0.995f);
+    set_baro(0.97f);
+    settle();
+    TEST_ASSERT_TRUE(check_h_reached());
+    set_baro(1.03f);
     settle();
     TEST_ASSERT_TRUE(check_h_reached());
 }
 
-void test_h_not_reached_outside_1_cm(void) {
+void test_h_not_reached_outside_diff_h_allowed(void) {
     mock_target.h = 1.0f;
-    set_h(0.97f);
+    set_baro(0.93f);
     settle();
     TEST_ASSERT_FALSE(check_h_reached());
-    set_h(1.03f);
+    set_baro(1.07f);
     settle();
     TEST_ASSERT_FALSE(check_h_reached());
+}
+
+/* At the target, but it has to stay there TIME_H_STABLE_MS (500 ms). */
+void test_h_reached_only_after_time_h_stable(void) {
+    TEST_ASSERT_EQUAL_INT(500, TIME_H_STABLE_MS);
+    mock_target.h = 0.0f;   /* already at the target (ground = 0 m) */
+    int steps = 0;
+    while (!check_h_reached() && steps < 100) { step(); steps++; }
+    /* 500 ms / 15 ms = 33.3 -> reached in the cycle 35 (the first one starts the timer) */
+    TEST_ASSERT_TRUE(check_h_reached());
+    TEST_ASSERT_INT_WITHIN(1, 35, steps);
+}
+
+void test_h_not_reached_while_the_vertical_velocity_is_high(void) {
+    mock_target.h = 0.0f;
+    settle();
+    TEST_ASSERT_TRUE(check_h_reached());
+    last_vel_z = 2.0f * V_STABLE;   /* moving up/down at the target height */
+    step_same_time();
+    TEST_ASSERT_FALSE(check_h_reached());
+}
+
+void test_h_leaving_the_target_restarts_the_timer(void) {
+    mock_target.h = 0.0f;
+    settle();
+    TEST_ASSERT_TRUE(check_h_reached());
+    mock_target.h = 1.0f;   /* new target, far away */
+    step();
+    TEST_ASSERT_FALSE(check_h_reached());
+    TEST_ASSERT_EQUAL_INT64(-1, t_h_reached_us);
+    mock_target.h = 0.0f;   /* back at the target: wait again */
+    step();
+    TEST_ASSERT_FALSE(check_h_reached());
+}
+
+/* [BUG] control_attitude() ends with set_h(h): it writes the estimated
+ * height (relative to the ground) in the same place of the state where the
+ * barometer writes the absolute altitude (pos.z). If the next cycle runs
+ * before a new barometer sample, get_h() reads its own estimate as the
+ * barometer: with the real BMP180 (altitude ~ 600 m) err_baro = h - h0
+ * becomes ~ -600 m. */
+void test_h_control_does_not_overwrite_the_barometer(void) {
+    set_baro(600.0f);
+    h_init = false;
+    set_time_height(t_now);
+    step();                 /* first sample: ground = 600 m */
+    set_baro(600.5f);
+    step();
+    vec3_t p;
+    get_position(&p);
+    TEST_ASSERT_FLOAT_WITHIN_MESSAGE(1e-3f, 600.5f, p.z, "pos.z is the barometer altitude");
 }
 
 void test_h_not_reached_far_away(void) {
     mock_target.h = 2.0f;
-    set_h(0.0f);
+    set_baro(0.0f);
     settle();
     TEST_ASSERT_FALSE(check_h_reached());
 }
@@ -603,14 +690,14 @@ void test_h_not_reached_far_away(void) {
 /* ------------------------------------------------------------------ */
 void test_hest_waits_for_the_first_barometer_sample(void) {
     h_init = false;
-    set_h(600.0f);          /* no barometer time yet */
+    set_baro(600.0f);          /* no barometer time yet */
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, get_h(0, 0));
     TEST_ASSERT_FALSE(h_init);
 }
 
 void test_hest_first_sample_is_the_ground(void) {
     h_init = false;
-    set_h(600.0f);
+    set_baro(600.0f);
     set_time_height(t_now);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, get_h(0, 0));
     TEST_ASSERT_TRUE(h_init);
@@ -619,10 +706,10 @@ void test_hest_first_sample_is_the_ground(void) {
 
 void test_hest_height_is_relative_to_the_ground(void) {
     h_init = false;
-    set_h(600.0f);
+    set_baro(600.0f);
     set_time_height(t_now);
     get_h(0, 0);
-    set_h(601.0f);
+    set_baro(601.0f);
     settle();
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.0f, h_est);
 }
@@ -630,7 +717,7 @@ void test_hest_height_is_relative_to_the_ground(void) {
 void test_hest_still_and_level_does_not_drift(void) {
     settle();
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, h_est);
-    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, last_vel_Z);
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, last_vel_z);
 }
 
 void test_hest_still_and_tilted_does_not_drift(void) {
@@ -639,18 +726,18 @@ void test_hest_still_and_tilted_does_not_drift(void) {
     set_tilt(20.0f, -10.0f);
     settle();
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, h_est);
-    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, last_vel_Z);
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, last_vel_z);
 }
 
 void test_hest_converges_to_the_barometer(void) {
-    set_h(1.5f);
+    set_baro(1.5f);
     settle();
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.5f, h_est);
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, last_vel_Z);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, last_vel_z);
 }
 
 void test_hest_one_step_is_filtered(void) {
-    set_h(1.0f);
+    set_baro(1.0f);
     step();
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, K_H * 1.0f, h_est);
 }
@@ -658,7 +745,7 @@ void test_hest_one_step_is_filtered(void) {
 void test_hest_upward_acceleration_gives_upward_velocity(void) {
     set_acc_lin(0, 0, 1.5f);   /* +0.5 g over the gravity */
     for (int i = 0; i < 10; i++) step();
-    TEST_ASSERT_TRUE(last_vel_Z > 0.0f);
+    TEST_ASSERT_TRUE(last_vel_z > 0.0f);
     TEST_ASSERT_TRUE(h_est > 0.0f);
 }
 
@@ -666,22 +753,87 @@ void test_hest_integrates_with_the_imu_time_in_s(void) {
     /* One step of 15 ms at +1 g over the gravity, barometer still at 0 */
     set_acc_lin(0, 0, 2.0f);
     step_same_time();          /* dt = 0: nothing is integrated */
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, last_vel_Z);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, last_vel_z);
     step();
     float dt = DT_NS / 1e9f;
     float h_pred = 0.5f * K_G * dt * dt;
-    TEST_ASSERT_FLOAT_WITHIN(1e-4f, K_G * dt - K_V * h_pred, last_vel_Z);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, K_G * dt - K_V * h_pred, last_vel_z);
 }
 
 void test_hest_long_dt_is_ignored(void) {
     set_acc_lin(0, 0, 2.0f);
     t_now += 1000000000LL;     /* 1 s without IMU data */
     step();
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, last_vel_Z);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, last_vel_z);
+}
+
+void test_hest_get_vel_z_returns_the_estimated_velocity(void) {
+    set_acc_lin(0, 0, 1.5f);
+    for (int i = 0; i < 10; i++) step();
+    TEST_ASSERT_TRUE(get_vel_z() > 0.0f);
+    TEST_ASSERT_EQUAL_FLOAT(last_vel_z, get_vel_z());
+}
+
+void test_hest_get_vel_z_is_zero_when_still(void) {
+    settle();
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, get_vel_z());
 }
 
 /* ------------------------------------------------------------------ */
-/*                           7. TASK / INIT                           */
+/*                              7. GAINS                              */
+/* ------------------------------------------------------------------ */
+void test_gains_start_with_the_defines(void) {
+    GAINS k;
+    get_gains(&k);
+    TEST_ASSERT_EQUAL_FLOAT(KP_H, k.kp_h);
+    TEST_ASSERT_EQUAL_FLOAT(KD_H, k.kd_h);
+    TEST_ASSERT_EQUAL_FLOAT(KP_ANGLE, k.kp_angle);
+    TEST_ASSERT_EQUAL_FLOAT(KP_RATE, k.kp_rate);
+    TEST_ASSERT_EQUAL_FLOAT(MAX_RATE, k.max_rate);
+    TEST_ASSERT_EQUAL_FLOAT(MAX_POW_RPY, k.max_pow_rpy);
+    TEST_ASSERT_EQUAL_FLOAT(throttle_base, k.base);
+}
+
+void test_gains_set_and_get(void) {
+    GAINS in = default_gains, out;
+    in.kp_h = 1.0f;
+    in.kd_h = 2.0f;
+    in.base = 3.0f;
+    set_gains(&in);
+    get_gains(&out);
+    TEST_ASSERT_EQUAL_MEMORY(&in, &out, sizeof in);
+}
+
+void test_gains_are_used_by_the_controller(void) {
+    GAINS k = default_gains;
+    k.kp_rate = 2.0f * default_gains.kp_rate;
+    set_gains(&k);
+    set_vel_ang(-10.0f, 0, 0);
+    step_same_time();
+    TEST_ASSERT_DOUBLE_WITHIN(1e-3, k.kp_rate * 10.0, decompose().r);
+}
+
+void test_gains_base_is_the_collective_thrust(void) {
+    GAINS k = default_gains;
+    k.base = 1000.0f;
+    set_gains(&k);
+    step_same_time();
+    TEST_ASSERT_DOUBLE_WITHIN(1e-3, 1000.0, decompose().h);
+}
+
+/* The vertical velocity is damped with kd_h. */
+void test_gains_kd_h_opposes_the_vertical_velocity(void) {
+    last_vel_z = 0.1f;
+    step_same_time();
+    double up = decompose().h;
+    last_vel_z = 0.0f;
+    step_same_time();
+    double still = decompose().h;
+    TEST_ASSERT_DOUBLE_WITHIN(1e-3, -KD_H * 0.1, up - still);
+}
+
+/* ------------------------------------------------------------------ */
+/*                           8. TASK / INIT                           */
 /* ------------------------------------------------------------------ */
 void test_task_init_creates_the_task_with_the_menuconfig_values(void) {
     init_attitude_controller();
@@ -730,7 +882,7 @@ int main(void) {
     RUN_TEST(test_est_accel_units_do_not_matter);
 
     RUN_TEST(test_ext_zero_velocity_gives_zero_angles);
-    RUN_TEST(test_ext_matches_the_drag_model);
+    RUN_TEST(test_ext_is_linear_below_the_limit);
     RUN_TEST(test_ext_forward_velocity_gives_positive_pitch_only);
     RUN_TEST(test_ext_lateral_velocity_gives_positive_roll_only);
     RUN_TEST(test_ext_backward_velocity_gives_negative_pitch);
@@ -740,7 +892,7 @@ int main(void) {
     RUN_TEST(test_ext_diagonal_gives_equal_roll_and_pitch);
     RUN_TEST(test_ext_is_limited_to_max_angle);
     RUN_TEST(test_ext_never_over_max_angle);
-    RUN_TEST(test_ext_max_angle_is_30_deg);
+    RUN_TEST(test_ext_max_angle_is_20_deg);
 
     RUN_TEST(test_int_one_motor_command_per_cycle);
     RUN_TEST(test_int_outputs_are_finite);
@@ -764,8 +916,12 @@ int main(void) {
     RUN_TEST(test_h_thrust_is_proportional_to_the_error);
     RUN_TEST(test_h_error_is_saved);
     RUN_TEST(test_h_reached_at_the_target);
-    RUN_TEST(test_h_reached_inside_1_cm);
-    RUN_TEST(test_h_not_reached_outside_1_cm);
+    RUN_TEST(test_h_reached_inside_diff_h_allowed);
+    RUN_TEST(test_h_not_reached_outside_diff_h_allowed);
+    RUN_TEST(test_h_reached_only_after_time_h_stable);
+    RUN_TEST(test_h_not_reached_while_the_vertical_velocity_is_high);
+    RUN_TEST(test_h_leaving_the_target_restarts_the_timer);
+    RUN_TEST(test_h_control_does_not_overwrite_the_barometer);
     RUN_TEST(test_h_not_reached_far_away);
 
     RUN_TEST(test_hest_waits_for_the_first_barometer_sample);
@@ -778,6 +934,14 @@ int main(void) {
     RUN_TEST(test_hest_upward_acceleration_gives_upward_velocity);
     RUN_TEST(test_hest_integrates_with_the_imu_time_in_s);
     RUN_TEST(test_hest_long_dt_is_ignored);
+    RUN_TEST(test_hest_get_vel_z_returns_the_estimated_velocity);
+    RUN_TEST(test_hest_get_vel_z_is_zero_when_still);
+
+    RUN_TEST(test_gains_start_with_the_defines);
+    RUN_TEST(test_gains_set_and_get);
+    RUN_TEST(test_gains_are_used_by_the_controller);
+    RUN_TEST(test_gains_base_is_the_collective_thrust);
+    RUN_TEST(test_gains_kd_h_opposes_the_vertical_velocity);
 
     RUN_TEST(test_task_init_creates_the_task_with_the_menuconfig_values);
     RUN_TEST(test_task_init_twice_creates_one_task);

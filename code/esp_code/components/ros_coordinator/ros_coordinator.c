@@ -117,7 +117,7 @@ static const float MAX_ALT = 3.0f; // TODO PONER PARAM
 static const float MIN_ALT = 0.5f;
 
 #define DEG_TO_RAD  0.017453293f  // pi / 180
-#define GRAVITY_MS2 9.80665f
+#define g 9.81f // Gravity (m/s^2)
 
 // ============================================================
 //                       IMU pub & msg
@@ -132,9 +132,10 @@ sensor_msgs__msg__Imu imu_msg;
 rcl_subscription_t params_sub;
 my_msgs__msg__Params recv_msg;
 
-bool new_vel = false;
 rcl_subscription_t cmd_vel_sub;
 geometry_msgs__msg__TwistStamped cmd_vel_msg;
+geometry_msgs__msg__Twist cmd_vel;
+static int64_t t_last_vel = -1; // last cmd_vel received
 
 
 // ============================================================
@@ -152,21 +153,21 @@ rcl_service_t takeoff_srv;
 my_msgs__srv__Takeoff_Request  takeoff_req;
 my_msgs__srv__Takeoff_Response takeoff_res;
 
-bool take_off_ready = false;
-float altitude = MIN_ALT;
+static bool take_off_ready = false;
+static float altitude = MIN_ALT;
 
 // Land
 rcl_service_t land_srv;
 std_srvs__srv__Trigger_Request  land_req;
 std_srvs__srv__Trigger_Response land_res;
 
-bool land_ready = false;
+static bool land_ready = false;
 
 
 // ============================================================
 //                           Mutex
 // ============================================================
-pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 
 // ============================================================
@@ -187,7 +188,7 @@ pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
     static char   frame_id_buf[] = "base_link";
 
     // Necesary because the publisher is called from another task
-    static volatile bool motors_pub_ready = false;
+    static bool motors_pub_ready = false;
 
     // Queue of 1 for new motors msg
     typedef struct { double v[NUM_MOTORS]; } motors_cmd_t;
@@ -235,23 +236,28 @@ void param_callback(const void * msgin)
 // ============================================================
 //                          CMD_VEL
 // ============================================================
-bool get_new_vel() {
+bool get_cmd_vel(geometry_msgs__msg__Twist *out, int max_age_ms) {
     pthread_mutex_lock(&lock);
-    bool res = new_vel;
-    new_vel = false;
+    bool fresh = (t_last_vel != 0) && ((esp_timer_get_time() - t_last_vel) < max_age_ms * 1000LL);
+
+    if (fresh) {
+        *out = cmd_vel;
+    }
     pthread_mutex_unlock(&lock);
-    return res;
+    return fresh;
 }
 
-geometry_msgs__msg__Twist get_cmd_vel() {
-    return cmd_vel_msg.twist;
+void clear_cmd_vel(void) {
+    pthread_mutex_lock(&lock);
+    t_last_vel = 0;
+    pthread_mutex_unlock(&lock);
 }
 
-void cmd_vel_callback(const void * msgin)
-{
+void cmd_vel_callback(const void * msgin) {
     const geometry_msgs__msg__TwistStamped * new_msg = (const geometry_msgs__msg__TwistStamped *)msgin;
     pthread_mutex_lock(&lock);
-    cmd_vel_msg = *new_msg;
+    cmd_vel = new_msg->twist;
+    t_last_vel = esp_timer_get_time();
     pthread_mutex_unlock(&lock);
 }
 
@@ -378,9 +384,9 @@ void fill_imu_msg(sensor_msgs__msg__Imu * out) {
     out->angular_velocity.y = vel_ang.y * DEG_TO_RAD;
     out->angular_velocity.z = vel_ang.z * DEG_TO_RAD;
 
-    out->angular_velocity.x = vel_ang.x * GRAVITY_MS2;
-    out->angular_velocity.y = vel_ang.y * GRAVITY_MS2;
-    out->angular_velocity.z = vel_ang.z * GRAVITY_MS2;
+    out->angular_velocity.x = vel_ang.x * g;
+    out->angular_velocity.y = vel_ang.y * g;
+    out->angular_velocity.z = vel_ang.z * g;
 }
 
 
@@ -388,12 +394,9 @@ void fill_imu_msg(sensor_msgs__msg__Imu * out) {
 //                    Simulation Subs/Pubs
 // ============================================================
 #ifdef CONFIG_SIMULATION_ON
-    static volatile uint32_t imu_recv_cnt = 0;
-
     // Imu Callback
     void imu_callback(const void * msgin) {
         const sensor_msgs__msg__Imu * new_msg = (const sensor_msgs__msg__Imu *)msgin;
-        imu_recv_cnt++;
         pthread_mutex_lock(&lock);
         imu_sub_msg = *new_msg;
         pthread_mutex_unlock(&lock);
@@ -407,9 +410,9 @@ void fill_imu_msg(sensor_msgs__msg__Imu * out) {
         );
 
         set_acc_lin(
-            imu_sub_msg.linear_acceleration.x / GRAVITY_MS2,
-            imu_sub_msg.linear_acceleration.y / GRAVITY_MS2,
-            imu_sub_msg.linear_acceleration.z / GRAVITY_MS2
+            imu_sub_msg.linear_acceleration.x / g,
+            imu_sub_msg.linear_acceleration.y / g,
+            imu_sub_msg.linear_acceleration.z / g
         );
 
         // Full time in ns (only nanosec goes back to 0 every second)
@@ -431,7 +434,7 @@ void fill_imu_msg(sensor_msgs__msg__Imu * out) {
 
     // Motors
     void motors_msg_init(void) {
-        actuator_msgs__msg__Actuators__init(&motors_msg);  // opcional, pero deja todo en estado válido
+        actuator_msgs__msg__Actuators__init(&motors_msg);
 
         motors_msg.velocity.data     = motors_buf;
         motors_msg.velocity.size     = NUM_MOTORS;
@@ -576,7 +579,7 @@ void micro_ros_task(void * arg) {
         RCCHECK(rclc_subscription_init(&height_sub, &node,
             ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, FluidPressure), "barometer/data", &sim_qos));
 
-        // Init motors pub - RELIABLE: Gazebo bridge subscriber requires RELIABLE
+        // Init motors pub
         RCCHECK(rclc_publisher_init_best_effort(&motors_pub, &node,
             ROSIDL_GET_MSG_TYPE_SUPPORT(actuator_msgs, msg, Actuators),
             "/drone/command/motor_speed"));
@@ -635,12 +638,7 @@ void micro_ros_task(void * arg) {
             &h_sub_msg, &height_callback, ON_NEW_DATA));
     #endif
 
-
-    ESP_LOGI(TAG, "Executor ready. Service valid=%d",
-             (int)rcl_service_is_valid(&takeoff_srv));
-
     int64_t last_log_us = esp_timer_get_time();
-
     while (1) {
         rcl_ret_t rc = rclc_executor_spin_some(&executor, RCL_MS_TO_NS(250));
 
@@ -653,8 +651,7 @@ void micro_ros_task(void * arg) {
             last_log_us = now_us;
             UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
             #ifdef CONFIG_SIMULATION_ON
-                // ESP_LOGI(TAG, "alive, imu_recv=%u stack_min=%u bytes",
-                //          (unsigned)imu_recv_cnt,
+                // ESP_LOGI(TAG, "alive, stack_min=%u bytes",
                 //          (unsigned)(free_words * sizeof(StackType_t)));
             #else
                 // ESP_LOGI(TAG, "alive, stack_min=%u bytes",

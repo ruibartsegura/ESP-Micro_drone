@@ -21,7 +21,7 @@
  *   - pub_motor_speed(): (simulation) mock that saves every published frame.
  *   - motor_out(): last value sent to a motor (duty in hw, power in sim).
  *   - setUp() / tearDown(): reset the mocks and the module before each test.
- *   - test_init_*: motors_init().
+ *   - test_init_*: init_motors().
  *   - test_arm_*: arm_motors() / disarm_motors().
  *   - test_speed_*: set_motor_speed().
  *   - test_stop_*: motors_stop_all().
@@ -84,7 +84,7 @@ void setUp(void) {
     n_frames = 0;
     pub_hook = NULL;
 #endif
-    motors_init();
+    init_motors();
 }
 
 void tearDown(void) {}
@@ -99,7 +99,7 @@ void test_init_4_motors(void) {
 
 void test_init_twice_is_harmless(void) {
     int timers = mock_ledc_timer_config_calls, chans = mock_ledc_channel_config_calls;
-    motors_init();
+    init_motors();
     TEST_ASSERT_EQUAL_INT(timers, mock_ledc_timer_config_calls);
     TEST_ASSERT_EQUAL_INT(chans, mock_ledc_channel_config_calls);
 }

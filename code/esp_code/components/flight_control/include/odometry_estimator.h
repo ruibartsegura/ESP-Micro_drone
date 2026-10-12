@@ -17,7 +17,7 @@
 #include <stdbool.h>
 #include "sdkconfig.h"
 
-void odom_estimator_init(void);
+void init_odom_estimator(void);
 bool odom_estimator_test(void); // Check leds
 
 #endif // ODOMETRY_ESTIMATOR_H

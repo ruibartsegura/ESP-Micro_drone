@@ -41,6 +41,7 @@
 #include "state.h"
 
 #include "esp_log.h"
+#include "esp_timer.h"
 
 #include "sdkconfig.h"
 
@@ -49,26 +50,15 @@
 
 // Complementay
 #define ALPHA 0.98 // Complementary filter constant
-// Height filter (barometer correction, w ~ 2 rad/s with dt ~ 15 ms)
-#define K_H 0.06f // Height correction
-#define K_V 0.06f // Vertical velocity correction
+
 
 // Constants for formula (Vel->Position (Roll/Pitch))
 #define rho 1121 // Air pressure at N.C. & 600m over sea level
 #define A 0.003 // frontal cross-sectional area approx
 #define C 1.0 // drag coefficient approx
-#define g 9.8 // Gravity
+#define g 9.81f // Gravity (m/s^2)
 #define m 16.5 // Drone mass
-#define MAX_ANGLE 0.52 // 30º in rad
-
-
-// PID H
-#define KP_H 100 // Proportional 350 pow / 1m error
-#define KD_H 110 // Proportional 350 pow / 1m error
-
-// PID Angle & rate
-#define KP_ANGLE 4   // deg error -> deg/s target
-#define KP_RATE  6   // deg/s error -> motor power
+#define MAX_ANGLE 0.35 // 20º in rad
 
 // Limits so the attitude never takes all the throttle of the motors
 #define MAX_RATE    200.0f // Max target roll/pitch rate (deg/s)
@@ -77,11 +67,17 @@
 #define throttle_base 2378 // Min throttle to hover
 #define max_throttle 3000
 
-// One log line every LOG_EVERY cycles (more slows down the loop)
-#define LOG_EVERY 30
+// PID H
+#define KP_H 100 // Proportional 350 pow / 1m error
+#define KD_H 110 // Proportional 350 pow / 1m error
 
-static const char *TAG = "ATTITUDE";
+// Height filter (barometer correction, w ~ 2 rad/s with dt ~ 15 ms)
+#define K_H 0.06f // Height correction
+#define K_V 0.06f // Vertical velocity correction
 
+// PID Angle & rate
+#define KP_ANGLE 2   // deg error -> deg/s target
+#define KP_RATE  3   // deg/s error -> motor power
 
 // Gains used by the controller. They start with the defines and can be
 // changed while flying with set_gains() (tuning task).
@@ -95,6 +91,31 @@ static GAINS gains = {
     .base        = throttle_base,
 };
 static pthread_mutex_t gains_lock = PTHREAD_MUTEX_INITIALIZER;
+
+
+// Allowed diference between target and actual height
+#define DIFF_H_ALLOWED 0.05f // m
+#define V_STABLE 0.05f // m/s, To be stable
+#define TIME_H_STABLE_MS 500 // Time in the height with a stable velocity
+
+static volatile bool h_reached = false;
+static int64_t t_h_reached_us = -1;   // -1 = no started to count
+
+// Measures to keep
+static RPY last_rpy;
+
+static float h_est, last_vel_z;  // Estimated height (m) and vertical velocity (m/s)
+static float h0;                 // Ground height (first barometer sample)
+static int64_t last_t_h;         // IMU time of the last height estimation (ns)
+static bool h_init = false;
+static float err_h;
+
+static bool is_init = false;
+static const char *TAG = "ATTITUDE";
+
+float get_vel_z() {
+    return last_vel_z;
+}
 
 
 // ============================================================
@@ -115,27 +136,11 @@ void set_gains(const GAINS *in) {
 #endif
 
 
-// Allowed diference between target adn actual height in
-float DIFF_H_ALLOWED = 0.01; // In meters
-
-RPY last_rpy;
-
-static float h_est, last_vel_Z;  // Estimated height (m) and vertical velocity (m/s)
-static float h0;                 // Ground height (first barometer sample)
-static int64_t last_t_h;         // IMU time of the last height estimation (ns)
-static bool h_init = false;
-static float err_h;
-
-
 // ============================================================
 //                  Checker of the height
 // ============================================================
 bool check_h_reached() {
-    if (fabsf(err_h) <= DIFF_H_ALLOWED) {
-        return true;
-    } else {
-        return false;
-    }
+    return h_reached;
 }
 
 
@@ -151,7 +156,7 @@ static float clampf(float x, float lim) {
     return x;
 }
 
-float complementary_filter(float a, float b, float alpha) {
+static float complementary_filter(float a, float b, float alpha) {
     return (alpha * a + (1.0 - alpha) * b);
 }
 
@@ -181,7 +186,7 @@ float get_h(float roll_deg, float pitch_deg) {
         }
         h0 = pos.z;
         h_est = 0.0f;
-        last_vel_Z = 0.0f;
+        last_vel_z = 0.0f;
         last_t_h = t_imu;
         h_init = true;
         return h_est;
@@ -207,13 +212,13 @@ float get_h(float roll_deg, float pitch_deg) {
     float acc_z = (acc_z_world - 1.0f) * g;
 
     // Prediction with the accelerometer
-    float h_pred = h_est + last_vel_Z * dt + 0.5f * acc_z * dt * dt;
-    float vel_z_pred = last_vel_Z + acc_z * dt;
+    float h_pred = h_est + last_vel_z * dt + 0.5f * acc_z * dt * dt;
+    float vel_z_pred = last_vel_z + acc_z * dt;
 
     // Correction with the barometer
     float err_baro = (pos.z - h0) - h_pred;
     h_est = h_pred + K_H * err_baro;
-    last_vel_Z = vel_z_pred + K_V * err_baro;
+    last_vel_z = vel_z_pred + K_V * err_baro;
 
     return h_est;
 }
@@ -260,40 +265,15 @@ void get_roll_pitch(float *roll, float *pitch) {
 //               CMD_VEL -> desired Roll/Pitch
 // ============================================================
 void cmd_vel_2_RP(float *targ_roll, float *targ_pitch, geometry_msgs__msg__Twist cmd_vel) {
-    float roll, pitch, vx, vy, sign_x, sign_y;
+    float roll, pitch, vx, vy;
 
     // Get input velocity
     vx = cmd_vel.linear.x;
     vy = cmd_vel.linear.y;
 
-    // Check forward o backward
-    if (vx >= 0) {
-        sign_x = 1.0;
-    } else {
-        sign_x = -1.0;
-    }
-
-    if (vy >= 0) {
-        sign_y = 1.0;
-    } else {
-        sign_y = -1.0;
-    }
-
     // Get the roll and pitch for the input vel
-    roll  = sign_y * atan2f((C*rho*A*vy*vy), (2*m*g));
-    pitch = sign_x * atan2f((C*rho*A*vx*vx), (2*m*g));
-
-    // Clamp result at 30º max
-    if (roll > MAX_ANGLE) {
-        roll = MAX_ANGLE;
-    } else if (roll < -MAX_ANGLE) {
-        roll = -MAX_ANGLE;
-    }
-    if (pitch > MAX_ANGLE) {
-        pitch = MAX_ANGLE;
-    } else if (pitch < -MAX_ANGLE) {
-        pitch = -MAX_ANGLE;
-    }
+    roll  = clampf(K_V * vy, MAX_ANGLE);
+    pitch  = clampf(K_V * vx, MAX_ANGLE);
 
     *targ_roll = roll;
     *targ_pitch = pitch;
@@ -372,11 +352,22 @@ void control_attitude() {
     float h = get_h(roll, pitch);
 
     err_h = attitude_target.h - h; // Distance between target and actual h.
-    pow_h = err_h * k.kp_h - k.kd_h * last_vel_Z;
+    pow_h = err_h * k.kp_h - k.kd_h * last_vel_z;
 
-    double power[N_MOTORS];
 
+    // Check if the drone has reached and hold the target H
+    if (fabsf(err_h) <= DIFF_H_ALLOWED && fabsf(last_vel_z) <= V_STABLE) {
+        if (t_h_reached_us < 0) {
+            t_h_reached_us = esp_timer_get_time();   // First time in target
+        }
+        h_reached = (esp_timer_get_time() - t_h_reached_us) >= TIME_H_STABLE_MS * 1000LL;
+    } else {
+        t_h_reached_us = -1;
+        h_reached = false;
+    }
+    
     // Motors power.
+    double power[N_MOTORS];
     power[0] = k.base + pow_h + pow_roll - pow_pitch - pow_yaw;
     power[1] = k.base + pow_h - pow_roll - pow_pitch + pow_yaw;
     power[2] = k.base + pow_h + pow_roll + pow_pitch + pow_yaw;
@@ -406,7 +397,13 @@ static void attitude_task(void *arg) {
 
 
 void init_attitude_controller() {
+    if (is_init) {
+        return;
+    }
+
     xTaskCreate(attitude_task, "attitude_task", CONFIG_ATTITUDE_TASK_STACK, NULL, CONFIG_ATTITUDE_TASK_PRIO, NULL);
+
+    is_init = true;
 }
 
 

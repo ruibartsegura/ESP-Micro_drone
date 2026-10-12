@@ -10,7 +10,7 @@
 #  Options:
 #    SAN=1                  build with AddressSanitizer + UBSan
 #    MODULE_SRC=path/to.c   (with "run") test another version of the module
-#    STATE= PARAMS= BMP= MPU=   other versions of the real modules that are linked
+#    STATE= PARAMS= BMP= MPU= QUAT=   other versions of the real modules that are linked
 #
 #  Every module is built in hardware mode (*_hw) and, if it has code for
 #  simulation, also with CONFIG_SIMULATION_ON (*_sim).
@@ -48,6 +48,7 @@ STATE  ?= $(COMP)/global_data/state/state.c
 PARAMS ?= $(COMP)/global_data/parameters/parameters.c
 BMP    ?= $(COMP)/drivers/height/bmp180.c
 MPU    ?= $(COMP)/drivers/imu/mpu6050.c
+QUAT   ?= $(COMP)/flight_control/quaternions.c
 
 COMMON := unity/unity.c mocks/mock_esp.c mocks/mock_ros.c
 
@@ -89,7 +90,9 @@ attitude_controller_SRC  := test_attitude_controller.c
 attitude_controller_EXTRA:= $(STATE)
 tuning_SRC               := test_tuning.c
 odometry_SRC             := test_odometry.c
-odometry_EXTRA           := $(STATE)
+odometry_EXTRA           := $(STATE) $(QUAT)
+# quaternions.c -> state.h uses int64_t without <stdint.h> (newlib math.h has it, glibc not)
+odometry_FLAGS           := -include stdint.h
 system_hw_SRC            := test_system.c
 system_hw_EXTRA          := $(STATE)
 system_sim_SRC           := test_system.c

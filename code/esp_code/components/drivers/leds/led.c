@@ -28,7 +28,7 @@ static const char *TAG = "LED";
 
 static bool is_init = false;
 
-static unsigned int led_pin[] = {
+static const unsigned int led_pin[] = {
     [LED_ESP]   = ESP_LED_PIN,
     [LED_RED]   = RED_LED_PIN,
     [LED_GREEN] = GREEN_LED_PIN,

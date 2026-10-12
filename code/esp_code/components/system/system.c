@@ -44,6 +44,7 @@
 #include "motors.h"
 
 #include "attitude_controller.h"
+#include "odometry_estimator.h"
 #include "tuning.h"
 
 // Microros
@@ -51,19 +52,20 @@
 
 #define SYSTEM_TASK_PERIOD_MS 20
 
-// How much error it's admitted in the altitude
-#define ALTITUDE_ERROR 5
+// Expire time fot cmd vel msg
+#define CMD_VEL_EXPIRE_TIME 500
+
 
 static const char *TAG = "SYSTEM";
 
 // Target of velocities + height
-ATTITUDE_TARGET att_target;
+static ATTITUDE_TARGET att_target;
 
 // Hover velocity = 0;
-geometry_msgs__msg__Twist hover_vel = {0};
+static geometry_msgs__msg__Twist hover_vel = {0};
 
 
-sm_states_t state = INIT;
+static sm_states_t state = INIT;
 static bool is_init = false;
 
 void system_init(void) {
@@ -78,7 +80,6 @@ void system_init(void) {
     vTaskDelay(pdMS_TO_TICKS(500));
 
     #ifndef CONFIG_SIMULATION_ON
-
         imu_init();
         vTaskDelay(pdMS_TO_TICKS(500));
 
@@ -86,10 +87,13 @@ void system_init(void) {
         vTaskDelay(pdMS_TO_TICKS(500));
     #endif
 
-    motors_init();
+    init_motors();
     vTaskDelay(pdMS_TO_TICKS(500));
 
     init_attitude_controller();
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    init_odom_estimator();
     vTaskDelay(pdMS_TO_TICKS(500));
 
     #ifdef CONFIG_GAINS_TUNE_ON
@@ -122,7 +126,7 @@ bool system_test(void) {
 
 
 // Change the state-machine state
-void change_state(int new_state) {
+void change_state(sm_states_t new_state) {
     state = new_state;
     set_sm_state(state);
 }
@@ -133,9 +137,11 @@ ATTITUDE_TARGET get_attitude() {
 }
 
 
+// Aux var
 static bool blink_led = true;
 
 void state_machine(void) {
+    geometry_msgs__msg__Twist v; // For cmd_vel
 
     switch (state) {
         case INIT:
@@ -191,7 +197,7 @@ void state_machine(void) {
             att_target.h = get_take_off_alt();
 
 
-            if (get_new_vel()) {
+            if (get_cmd_vel(&v, CMD_VEL_EXPIRE_TIME)) {
                 change_state(EXTERNAL_CONTROL);
             }
 
@@ -204,8 +210,15 @@ void state_machine(void) {
             break;
 
         case EXTERNAL_CONTROL:
-            att_target.cmd_vel = get_cmd_vel();
-            att_target.h = get_take_off_alt();
+            if (get_cmd_vel(&v, 500)) {
+                att_target.cmd_vel = v;
+                att_target.h = get_take_off_alt();
+            } else {
+                att_target.cmd_vel = hover_vel;
+                led_on(LED_BLUE);
+                led_on(LED_GREEN);
+                change_state(HOVERING);
+            }
 
             if (get_landing_ready()) {
                 led_on(LED_GREEN);
@@ -249,8 +262,8 @@ void state_machine(void) {
             break;
 
         case DISARMING:
-            motors_stop_all();
             disarm_motors();
+            motors_stop_all();
 
             led_on(LED_GREEN);
             led_off(LED_RED);
@@ -290,8 +303,4 @@ void system_start(void) {
 }
 
 // TODO
-//      Implementar get_take_off() en ros_coordinator
-//
 //      Implementar params en configuration, hacer get/set para modificarlo con ros_coordinator
-//
-//      Hacer cambios de estados...

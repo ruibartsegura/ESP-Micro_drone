@@ -58,6 +58,10 @@ typedef struct { float h_max; float v_max; bool land_on_site; } my_msgs__msg__Pa
 typedef struct { float altitude; } my_msgs__srv__Takeoff_Request;
 typedef struct { bool accepted; rosidl_runtime_c__String reason; } my_msgs__srv__Takeoff_Response;
 
+/* ---- std_srvs ---- */
+typedef struct { uint8_t structure_needs_at_least_one_member; } std_srvs__srv__Trigger_Request;
+typedef struct { bool success; rosidl_runtime_c__String message; } std_srvs__srv__Trigger_Response;
+
 /* ---- actuator_msgs ---- */
 typedef struct {
     std_msgs__msg__Header              header;

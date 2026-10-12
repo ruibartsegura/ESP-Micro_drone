@@ -24,7 +24,6 @@ The summary shows one line per suite:
 | `NO BUILD` | the module does not compile in that mode (see `build/<suite>.build.log`) |
 | `CRASH`    | the test program stopped before the end |
 
-**Tests marked `[BUG]`** in their comment fail with the current code on purpose: each one documents a real defect and explains it. When you fix the bug, the test passes. Tests with `TEST_IGNORE_MESSAGE` are for features that are not implemented yet (TODO).
 
 ## How it works
 

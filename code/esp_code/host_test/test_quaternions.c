@@ -34,15 +34,15 @@
 #include "mocks/mock_reset.h"
 
 #ifndef MODULE_SRC
-#define MODULE_SRC "../components/drivers/imu/quaternions.c"
+#define MODULE_SRC "../components/flight_control/quaternions.c"
 #endif
 #include MODULE_SRC
 
-static Quaternion quat_from_euler(float roll_deg, float pitch_deg, float yaw_deg) {
+static quat_t quat_from_euler(float roll_deg, float pitch_deg, float yaw_deg) {
     float cr = cosf(RAD(roll_deg) / 2), sr = sinf(RAD(roll_deg) / 2);
     float cp = cosf(RAD(pitch_deg) / 2), sp = sinf(RAD(pitch_deg) / 2);
     float cy = cosf(RAD(yaw_deg) / 2), sy = sinf(RAD(yaw_deg) / 2);
-    Quaternion q;
+    quat_t q;
     q.w = cr * cp * cy + sr * sp * sy;
     q.x = sr * cp * cy - cr * sp * sy;
     q.y = cr * sp * cy + sr * cp * sy;
@@ -50,11 +50,11 @@ static Quaternion quat_from_euler(float roll_deg, float pitch_deg, float yaw_deg
     return q;
 }
 
-static float norm(const Quaternion *q) {
+static float norm(const quat_t *q) {
     return sqrtf(q->w * q->w + q->x * q->x + q->y * q->y + q->z * q->z);
 }
 
-static void run_filter(Quaternion *q, int steps, float gx, float gy, float gz,
+static void run_filter(quat_t *q, int steps, float gx, float gy, float gz,
                        float ax, float ay, float az, float dt) {
     for (int i = 0; i < steps; i++) quaternion_update(q, gx, gy, gz, ax, ay, az, dt);
 }
@@ -101,7 +101,7 @@ void test_helpers_wrap_angle_outside_range(void) {
 /*                           EULER ANGLES                             */
 /* ------------------------------------------------------------------ */
 void test_euler_init_is_identity(void) {
-    Quaternion q = { 9, 9, 9, 9 };
+    quat_t q = { 9, 9, 9, 9 };
     quaternion_init(&q);
     TEST_ASSERT_EQUAL_FLOAT(1.0f, q.w);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, q.x);
@@ -110,7 +110,7 @@ void test_euler_init_is_identity(void) {
 }
 
 void test_euler_identity_is_zero_angles(void) {
-    Quaternion q;
+    quat_t q;
     quaternion_init(&q);
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.0f, quaternion_get_roll(&q));
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.0f, quaternion_get_pitch(&q));
@@ -121,7 +121,7 @@ void test_euler_round_trip_on_a_grid(void) {
     for (int r = -150; r <= 150; r += 30)
         for (int p = -80; p <= 80; p += 20)
             for (int y = -150; y <= 150; y += 50) {
-                Quaternion q = quat_from_euler(r, p, y);
+                quat_t q = quat_from_euler(r, p, y);
                 TEST_ASSERT_FLOAT_WITHIN(0.01f, r, quaternion_get_roll(&q));
                 TEST_ASSERT_FLOAT_WITHIN(0.01f, p, quaternion_get_pitch(&q));
                 TEST_ASSERT_FLOAT_WITHIN(0.01f, y, quaternion_get_yaw(&q));
@@ -129,12 +129,12 @@ void test_euler_round_trip_on_a_grid(void) {
 }
 
 void test_euler_angles_are_in_degrees(void) {
-    Quaternion q = quat_from_euler(45.0f, 0.0f, 0.0f);
+    quat_t q = quat_from_euler(45.0f, 0.0f, 0.0f);
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 45.0f, quaternion_get_roll(&q));
 }
 
 void test_euler_pitch_90_does_not_give_nan(void) {
-    Quaternion q = quat_from_euler(0.0f, 90.0f, 0.0f);
+    quat_t q = quat_from_euler(0.0f, 90.0f, 0.0f);
     q.y *= 1.0001f;   /* rounding error: sinp a bit over 1 */
     float p = quaternion_get_pitch(&q);
     TEST_ASSERT_FALSE(isnan(p));
@@ -142,7 +142,7 @@ void test_euler_pitch_90_does_not_give_nan(void) {
 }
 
 void test_euler_pitch_minus_90_does_not_give_nan(void) {
-    Quaternion q = quat_from_euler(0.0f, -90.0f, 0.0f);
+    quat_t q = quat_from_euler(0.0f, -90.0f, 0.0f);
     q.y *= 1.0001f;
     float p = quaternion_get_pitch(&q);
     TEST_ASSERT_FALSE(isnan(p));
@@ -151,7 +151,7 @@ void test_euler_pitch_minus_90_does_not_give_nan(void) {
 
 void test_euler_angles_are_always_in_range(void) {
     for (int i = 0; i < 1000; i++) {
-        Quaternion q = { cosf(i * 0.37f), sinf(i * 0.11f), cosf(i * 0.23f), sinf(i * 0.71f) };
+        quat_t q = { cosf(i * 0.37f), sinf(i * 0.11f), cosf(i * 0.23f), sinf(i * 0.71f) };
         float n = norm(&q);
         q.w /= n; q.x /= n; q.y /= n; q.z /= n;
         float r = quaternion_get_roll(&q), p = quaternion_get_pitch(&q), y = quaternion_get_yaw(&q);
@@ -166,14 +166,14 @@ void test_euler_angles_are_always_in_range(void) {
 /* ------------------------------------------------------------------ */
 /* With the accelerometer at 0 the correction is skipped: only the gyro. */
 void test_gyro_no_rotation_keeps_identity(void) {
-    Quaternion q;
+    quat_t q;
     quaternion_init(&q);
     run_filter(&q, 100, 0, 0, 0, 0, 0, 0, 0.01f);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, q.w);
 }
 
 void test_gyro_yaw_90_dps_for_1_s_is_90_deg(void) {
-    Quaternion q;
+    quat_t q;
     quaternion_init(&q);
     run_filter(&q, 1000, 0, 0, RAD(90.0f), 0, 0, 0, 0.001f);
     TEST_ASSERT_FLOAT_WITHIN(0.5f, 90.0f, quaternion_get_yaw(&q));
@@ -182,21 +182,21 @@ void test_gyro_yaw_90_dps_for_1_s_is_90_deg(void) {
 }
 
 void test_gyro_roll_30_dps_for_1_s_is_30_deg(void) {
-    Quaternion q;
+    quat_t q;
     quaternion_init(&q);
     run_filter(&q, 1000, RAD(30.0f), 0, 0, 0, 0, 0, 0.001f);
     TEST_ASSERT_FLOAT_WITHIN(0.2f, 30.0f, quaternion_get_roll(&q));
 }
 
 void test_gyro_pitch_minus_20_dps_for_1_s_is_minus_20_deg(void) {
-    Quaternion q;
+    quat_t q;
     quaternion_init(&q);
     run_filter(&q, 1000, 0, RAD(-20.0f), 0, 0, 0, 0, 0.001f);
     TEST_ASSERT_FLOAT_WITHIN(0.2f, -20.0f, quaternion_get_pitch(&q));
 }
 
 void test_gyro_result_does_not_depend_on_the_step(void) {
-    Quaternion a, b;
+    quat_t a, b;
     quaternion_init(&a);
     quaternion_init(&b);
     run_filter(&a, 100,  0, 0, RAD(45.0f), 0, 0, 0, 0.01f);
@@ -205,8 +205,8 @@ void test_gyro_result_does_not_depend_on_the_step(void) {
 }
 
 void test_gyro_zero_dt_does_not_change_the_quaternion(void) {
-    Quaternion q = quat_from_euler(10.0f, 20.0f, 30.0f);
-    Quaternion before = q;
+    quat_t q = quat_from_euler(10.0f, 20.0f, 30.0f);
+    quat_t before = q;
     quaternion_update(&q, 1.0f, 2.0f, 3.0f, 0.1f, 0.2f, 0.9f, 0.0f);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, before.w, q.w);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, before.x, q.x);
@@ -218,7 +218,7 @@ void test_gyro_zero_dt_does_not_change_the_quaternion(void) {
 /*                        ACCEL CORRECTION                            */
 /* ------------------------------------------------------------------ */
 void test_accel_level_reading_keeps_identity(void) {
-    Quaternion q;
+    quat_t q;
     quaternion_init(&q);
     run_filter(&q, 1000, 0, 0, 0, 0, 0, 1.0f, 0.01f);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, quaternion_get_roll(&q));
@@ -227,7 +227,7 @@ void test_accel_level_reading_keeps_identity(void) {
 
 void test_accel_converges_to_roll_30(void) {
     float ax, ay, az;
-    Quaternion q;
+    quat_t q;
     quaternion_init(&q);
     gravity(30.0f, 0.0f, &ax, &ay, &az);
     run_filter(&q, 3000, 0, 0, 0, ax, ay, az, 0.01f);
@@ -237,7 +237,7 @@ void test_accel_converges_to_roll_30(void) {
 
 void test_accel_converges_to_pitch_minus_20(void) {
     float ax, ay, az;
-    Quaternion q;
+    quat_t q;
     quaternion_init(&q);
     gravity(0.0f, -20.0f, &ax, &ay, &az);
     run_filter(&q, 3000, 0, 0, 0, ax, ay, az, 0.01f);
@@ -248,7 +248,7 @@ void test_accel_converges_to_pitch_minus_20(void) {
 void test_accel_units_do_not_matter(void) {
     /* The accelerometer is normalised: g and m/s^2 give the same result */
     float ax, ay, az;
-    Quaternion a, b;
+    quat_t a, b;
     quaternion_init(&a);
     quaternion_init(&b);
     gravity(15.0f, 10.0f, &ax, &ay, &az);
@@ -260,7 +260,7 @@ void test_accel_units_do_not_matter(void) {
 
 void test_accel_cannot_correct_the_yaw(void) {
     /* The gravity has no information about the yaw */
-    Quaternion q = quat_from_euler(0.0f, 0.0f, 40.0f);
+    quat_t q = quat_from_euler(0.0f, 0.0f, 40.0f);
     run_filter(&q, 1000, 0, 0, 0, 0, 0, 1.0f, 0.01f);
     TEST_ASSERT_FLOAT_WITHIN(0.5f, 40.0f, quaternion_get_yaw(&q));
 }
@@ -269,7 +269,7 @@ void test_accel_correction_is_slow_compared_to_the_gyro(void) {
     /* BETA = 0.08: in 0.1 s the accelerometer can only move a few degrees,
      * so short vibrations do not change the attitude much. */
     float ax, ay, az;
-    Quaternion q;
+    quat_t q;
     quaternion_init(&q);
     gravity(30.0f, 0.0f, &ax, &ay, &az);
     run_filter(&q, 10, 0, 0, 0, ax, ay, az, 0.01f);
@@ -279,7 +279,7 @@ void test_accel_correction_is_slow_compared_to_the_gyro(void) {
 void test_accel_removes_the_gyro_drift(void) {
     /* A constant gyro bias of 0.5 deg/s on roll: without the accelerometer
      * the error grows forever, with it the error stays small. */
-    Quaternion q;
+    quat_t q;
     quaternion_init(&q);
     run_filter(&q, 6000, RAD(0.5f), 0, 0, 0, 0, 1.0f, 0.01f);   /* 60 s */
     TEST_ASSERT_TRUE_MESSAGE(fabsf(quaternion_get_roll(&q)) < 5.0f,
@@ -287,7 +287,7 @@ void test_accel_removes_the_gyro_drift(void) {
 }
 
 void test_accel_tiny_reading_is_ignored(void) {
-    Quaternion q;
+    quat_t q;
     quaternion_init(&q);
     run_filter(&q, 100, 0, 0, 0, 1e-5f, 0, 0, 0.01f);   /* |a|^2 < 1e-6 */
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, q.w);
@@ -297,7 +297,7 @@ void test_accel_tiny_reading_is_ignored(void) {
 /*                              NORM                                  */
 /* ------------------------------------------------------------------ */
 void test_norm_is_1_after_every_update(void) {
-    Quaternion q;
+    quat_t q;
     quaternion_init(&q);
     for (int i = 0; i < 5000; i++) {
         quaternion_update(&q, sinf(i * 0.01f), cosf(i * 0.013f), 0.3f,
@@ -307,13 +307,13 @@ void test_norm_is_1_after_every_update(void) {
 }
 
 void test_norm_not_normalised_input_is_normalised(void) {
-    Quaternion q = { 2.0f, 0.0f, 0.0f, 0.0f };
+    quat_t q = { 2.0f, 0.0f, 0.0f, 0.0f };
     quaternion_update(&q, 0, 0, 0, 0, 0, 1.0f, 0.01f);
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, 1.0f, norm(&q));
 }
 
 void test_norm_outputs_are_never_nan(void) {
-    Quaternion q;
+    quat_t q;
     quaternion_init(&q);
     run_filter(&q, 1000, 10.0f, -10.0f, 10.0f, 0.0f, 5.0f, -3.0f, 0.02f);
     TEST_ASSERT_FALSE(isnan(q.w) || isnan(q.x) || isnan(q.y) || isnan(q.z));

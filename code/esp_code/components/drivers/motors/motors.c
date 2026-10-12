@@ -29,20 +29,20 @@
 
 #include "esp_log.h"
 
-static const char *TAG  = "MOTOR";
+static const char *TAG = "MOTOR";
 
-static bool drone_armed = false;
+static volatile bool drone_armed = false;
 
-static bool is_init     = false;
-static bool is_testing  = false;
+static bool is_init = false;
+static volatile bool is_testing = false;
 
 // GPIO pin and LEDC channel are just used with real drone, no simulation
 #ifdef CONFIG_SIMULATION_ON
     #define TEST_POWER  2390
     #define MAX_POWER   4000
 #else
-    #define MAX_POWER   100
     #define TEST_POWER  100
+    #define MAX_POWER   100
 
     static const gpio_num_t motor_gpio[N_MOTORS] = {
         motor_1,
@@ -95,7 +95,11 @@ void set_motor_speed(double power[N_MOTORS]) {
 
     for (int x = 0; x < N_MOTORS; x++) {
         // When drone is disarmed, the motors doesn't work
-        power[x] = drone_armed ? limit_power(power[x], MAX_POWER) : 0.0;
+        if (drone_armed) {
+            power[x] = limit_power(power[x], MAX_POWER);
+        } else {
+            power[x] = 0;
+        }
     }
 
     write_motors(power);
@@ -106,7 +110,7 @@ void motors_stop_all(void) {
     write_motors(power);
 }
 
-void motors_init(void) {
+void init_motors(void) {
     if (is_init) {
         return;
     }
