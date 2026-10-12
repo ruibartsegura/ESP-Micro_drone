@@ -24,7 +24,6 @@
  *   - fake_bmp_*(): (hardware) the simulated BMP180.
  *   - setUp() / tearDown(): reset the mocks, the module and the state.
  *   - test_init_*: height_init() and height_test().
- *   - test_data_*: (hardware) latest_data, the last sample of h_sample().
  *   - test_sample_*: (hardware) h_sample(), reading of the sensor.
  *   - test_task_*: the FreeRTOS task.
  *   - main(): runs all the tests.
@@ -83,7 +82,6 @@ static float expected_alt(void) {
 
 static void reset_module(void) {
     is_init = false;
-    memset(&latest_data, 0, sizeof latest_data);
 }
 
 void setUp(void) {
@@ -203,24 +201,10 @@ void test_init_missing_sensor_reports_the_failure(void) {
 #endif
 
 /* ------------------------------------------------------------------ */
-/*                    latest_data (last altitude)                     */
+/*                  CRITICAL SECTION (global state)                   */
 /* ------------------------------------------------------------------ */
 #ifndef CONFIG_SIMULATION_ON
-void test_data_keeps_the_last_altitude(void) {
-    height_init();
-    h_sample();
-    TEST_ASSERT_FLOAT_WITHIN(1.0f, expected_alt(), (float)latest_data.pose.position.z);
-}
-
-void test_data_keeps_the_time_of_the_sample(void) {
-    height_init();
-    mock_time_us = 2500000;   /* 2.5 s */
-    h_sample();
-    TEST_ASSERT_EQUAL_INT32(2, latest_data.header.stamp.sec);
-    TEST_ASSERT_EQUAL_UINT32(500000000u, latest_data.header.stamp.nanosec);
-}
-
-void test_data_uses_the_critical_section(void) {
+void test_sample_uses_the_critical_section(void) {
     height_init();
     int before = mock_critical_enter_count;
     h_sample();
@@ -366,9 +350,7 @@ int main(void) {
 #endif
 
 #ifndef CONFIG_SIMULATION_ON
-    RUN_TEST(test_data_keeps_the_last_altitude);
-    RUN_TEST(test_data_keeps_the_time_of_the_sample);
-    RUN_TEST(test_data_uses_the_critical_section);
+    RUN_TEST(test_sample_uses_the_critical_section);
 
     RUN_TEST(test_sample_saves_the_altitude_in_the_state);
     RUN_TEST(test_sample_uses_sea_level_as_reference);

@@ -31,10 +31,6 @@
 
 static const char *TAG = "h_task";
 
-static geometry_msgs__msg__PoseStamped latest_data;
-
-static portMUX_TYPE data_mux = portMUX_INITIALIZER_UNLOCKED;
-
 #define H_TASK_PERIOD_MS 10
 
 #define SEA_LEVEL_PA 101325.0f   // reference pressure for the altitude
@@ -93,13 +89,6 @@ static void h_sample() {
 
         set_h(alt);
         set_time_height(t_ns);
-
-        // Keep get_height_data() up to date
-        portENTER_CRITICAL(&data_mux);
-        latest_data.pose.position.z      = alt;
-        latest_data.header.stamp.sec     = (int32_t)(t_ns / 1000000000LL);
-        latest_data.header.stamp.nanosec = (uint32_t)(t_ns % 1000000000LL);
-        portEXIT_CRITICAL(&data_mux);
     #endif
 }
 
@@ -115,8 +104,8 @@ static void bmp180_task(void *arg) {
         if (++log_counter >= 500) {
             log_counter = 0;
             UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
-            // // ESP_LOGI(TAG, "stack libre (min historico): %u bytes",
-            //          (unsigned)(free_words * sizeof(StackType_t)));
+            ESP_LOGI(TAG, "stack libre (min historico): %u bytes",
+                     (unsigned)(free_words * sizeof(StackType_t)));
         }
 
         vTaskDelay(pdMS_TO_TICKS(H_TASK_PERIOD_MS));
@@ -138,7 +127,12 @@ void height_init(void) {
         }
     #endif
 
-    xTaskCreate(bmp180_task, "bmp180_task", CONFIG_HEIGHT_TASK_STACK, NULL, CONFIG_HEIGHT_TASK_PRIO, NULL);
+    xTaskCreate(bmp180_task,
+        "bmp180_task",
+        CONFIG_HEIGHT_TASK_STACK,
+        NULL,
+        CONFIG_HEIGHT_TASK_PRIO,
+        NULL);
 
     is_init = true;
 }

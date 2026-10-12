@@ -26,6 +26,7 @@
 #include "rclc/executor.h"
 #include "rmw_microros/rmw_microros.h"
 #include "rmw_microros/timing.h"
+#include "rmw_microros/time_sync.h"
 #include "mock_ros_msgs.h"
 
 void mock_task_exit(void);   /* mock_esp.c */
@@ -123,6 +124,24 @@ rmw_ret_t rmw_uros_set_publisher_session_timeout(rmw_publisher_t *pub, int sessi
     mock_uros_pub_timeout_pub = pub ? pub->pub : NULL;
     mock_uros_pub_timeout_ms = session_timeout;
     return 0;
+}
+
+/* ---- rmw_microros/time_sync.h ---- */
+bool      mock_uros_synced;
+int64_t   mock_uros_epoch_ns;
+int       mock_uros_sync_calls;
+int       mock_uros_sync_timeout_ms = -1;
+rmw_ret_t mock_uros_sync_ret;
+
+bool    rmw_uros_epoch_synchronized(void) { return mock_uros_synced; }
+int64_t rmw_uros_epoch_millis(void)       { return mock_uros_epoch_ns / 1000000; }
+int64_t rmw_uros_epoch_nanos(void)        { return mock_uros_epoch_ns; }
+
+rmw_ret_t rmw_uros_sync_session(const int timeout_ms) {
+    mock_uros_sync_calls++;
+    mock_uros_sync_timeout_ms = timeout_ms;
+    if (mock_uros_sync_ret == 0) mock_uros_synced = true;
+    return mock_uros_sync_ret;
 }
 
 /* ---- rclc ---- */
@@ -264,6 +283,12 @@ bool sensor_msgs__msg__Imu__init(sensor_msgs__msg__Imu *msg) {
     return true;
 }
 
+bool my_msgs__msg__State__init(my_msgs__msg__State *msg) {
+    if (!msg) return false;
+    memset(msg, 0, sizeof *msg);
+    return true;
+}
+
 bool actuator_msgs__msg__Actuators__init(actuator_msgs__msg__Actuators *msg) {
     if (!msg) return false;
     memset(msg, 0, sizeof *msg);
@@ -282,6 +307,11 @@ void mock_reset_ros(void) {
     mock_uros_agent_port[0] = '\0';
     mock_uros_pub_timeout_ms = -1;
     mock_uros_pub_timeout_pub = NULL;
+    mock_uros_synced = false;
+    mock_uros_epoch_ns = 0;
+    mock_uros_sync_calls = 0;
+    mock_uros_sync_timeout_ms = -1;
+    mock_uros_sync_ret = 0;
     memset(mock_exec_handles, 0, sizeof mock_exec_handles);
     mock_exec_handle_count = 0;
     mock_exec_max_handles = 0;

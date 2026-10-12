@@ -10,6 +10,7 @@ make test                  # build and run everything, and print a summary
 make run T=motors_sim      # run one suite and see every test
 make list                  # list the suites
 make test SAN=1            # with AddressSanitizer + UBSan (finds memory errors)
+make style                 # style check of components/ and main/
 make clean
 ```
 
@@ -33,6 +34,8 @@ The summary shows one line per suite:
   - `driver/gpio.h`, `driver/ledc.h`: pin levels, PWM duties.
   - `driver/i2c.h`: a fake bus with a register map for each device (`mock_i2c_regs[addr][reg]`). Hooks can simulate a chip (see the fake BMP180 in `test_bmp180.c`), and `mock_i2c_fail_at` makes a transaction fail.
   - `rcl/`, `rclc/`: every publisher, subscriber, service, timer and executor handle is saved with its name, type and QoS. `mock_rcl_fail_at` makes an init call fail.
+  - `rmw_microros/`: session timeout and time sync with the agent (`mock_uros_synced`, `mock_uros_epoch_ns`, `mock_uros_sync_ret`).
+  - Messages (`mock_ros_msgs.h`): structs with the same fields as the generated ones, including `my_msgs` (`Params`, `State`, `Takeoff`). **Update it if you change a message.**
   - `sdkconfig.h`: a copy of the real menuconfig values. **Update it if you change menuconfig.**
 - `test_helpers.h`: `TEST_ASSERT_NO_CRASH()` turns a crash (NULL pointer, division by zero) into a normal failure, so the other tests still run.
 - Some suites also link real modules (`state.c`, `parameters.c`, `bmp180.c`, `mpu6050.c`); see the `*_EXTRA` variables in the `Makefile`.
@@ -60,3 +63,21 @@ make run T=height_hw MODULE_SRC=/path/to/height.c
 3. Add the suite to the `Makefile`: put its name in `TESTS`, and add `<name>_SRC`, plus `<name>_EXTRA` (real modules to link) and `<name>_FLAGS := $(SIM)` if it needs them. If it has simulation code, add two suites: `<name>_hw` and `<name>_sim`.
 4. If the module uses an ESP-IDF header that is not in `mocks/` yet, add it there, and its implementation in `mocks/mock_esp.c`. Reset its variables in `mock_reset_esp()`.
 5. If the module includes a new component, add its `include` folder to `INCS` in the `Makefile`.
+
+## Style check
+
+`make style` runs `style_check.py` over `components/` and `main/` (the micro-ROS component is skipped). It fails if there is any error; long lines (more than 90 characters) are only warnings.
+
+| Rule | What it checks |
+|------|----------------|
+| `indent` | 4 spaces per level, no tabs |
+| `brace` | `{` at the end of the line, never alone |
+| `naming` | `snake_case` or `UPPER_CASE`, no `camelCase` (names of ESP-IDF, FreeRTOS and micro-ROS are skipped) |
+| `define` | `#define` names in `UPPER_CASE` |
+| `space` | `if (`, `for (`, `while (`, `switch (` |
+| `pointer` | `float *x`, not `float* x` |
+| `else` | `} else {` in the same line |
+| `trailing` | no spaces at the end of the lines |
+| `header` | every file starts with the `/** Made by ...` comment |
+
+To allow a name that breaks the rules, add it to `IGNORED_NAMES` (or a prefix to `IGNORED_PREFIXES`) at the top of `style_check.py`. You can also check other files: `python3 style_check.py path/file.c path/dir`.

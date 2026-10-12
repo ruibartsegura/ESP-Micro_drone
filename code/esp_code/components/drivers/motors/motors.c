@@ -45,10 +45,10 @@ static volatile bool is_testing = false;
     #define MAX_POWER   100
 
     static const gpio_num_t motor_gpio[N_MOTORS] = {
-        motor_1,
-        motor_2,
-        motor_3,
-        motor_4,
+        MOTOR_1,
+        MOTOR_2,
+        MOTOR_3,
+        MOTOR_4,
     };
 
     static const ledc_channel_t motor_channel[N_MOTORS] = {

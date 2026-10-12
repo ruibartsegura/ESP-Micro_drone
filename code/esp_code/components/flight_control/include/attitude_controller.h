@@ -48,6 +48,7 @@ typedef struct gains {
 
 float get_vel_z(); // To avoid the calc in odometry
 
+void reset_h_reached();
 bool check_h_reached();
 
 void get_gains(GAINS *out);

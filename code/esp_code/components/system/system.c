@@ -162,8 +162,10 @@ void state_machine(void) {
             break;
 
         case ARMING:
-            if(get_take_off_ready()) {
+            if (get_take_off_ready()) {
                 arm_motors();
+
+                reset_h_reached();
 
                 change_state(TAKING_OFF);
             } else {
@@ -178,6 +180,9 @@ void state_machine(void) {
 
             if (check_h_reached()) {
                 led_on(LED_BLUE);
+
+                reset_h_reached();
+
                 change_state(HOVERING);
             } else {
                 if (blink_led) {
@@ -205,6 +210,8 @@ void state_machine(void) {
                 led_on(LED_GREEN);
                 led_off(LED_BLUE);
 
+                reset_h_reached();
+
                 change_state(LANDING);
             }
             break;
@@ -223,6 +230,8 @@ void state_machine(void) {
             if (get_landing_ready()) {
                 led_on(LED_GREEN);
                 led_off(LED_BLUE);
+
+                reset_h_reached();
 
                 change_state(LANDING);
             } else {
@@ -247,9 +256,11 @@ void state_machine(void) {
                 led_on(LED_GREEN);
                 led_on(LED_BLUE);
 
+                reset_h_reached();
+
                 change_state(DISARMING);
             } else {
-                 if (blink_led) {
+                if (blink_led) {
                     led_on(LED_RED);
                     blink_led = false;
                     vTaskDelay(pdMS_TO_TICKS(150));
@@ -290,8 +301,8 @@ static void system_task(void *arg) {
         if (++log_counter >= 250) {
             log_counter = 0;
             UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
-            // ESP_LOGI("system_task", "stack libre (min historico): %u bytes",
-                    //  (unsigned)(free_words * sizeof(StackType_t)));
+            ESP_LOGI("system_task", "stack libre (min historico): %u bytes",
+                     (unsigned)(free_words * sizeof(StackType_t)));
         }
 
         vTaskDelay(pdMS_TO_TICKS(SYSTEM_TASK_PERIOD_MS));
@@ -299,8 +310,14 @@ static void system_task(void *arg) {
 }
 
 void system_start(void) {
-    xTaskCreate(system_task, "system_task", CONFIG_SYSTEM_TASK_STACK, NULL, CONFIG_SYSTEM_TASK_PRIO, NULL);
+    xTaskCreate(system_task,
+        "system_task",
+        CONFIG_SYSTEM_TASK_STACK,
+        NULL,
+        CONFIG_SYSTEM_TASK_PRIO,
+        NULL);
 }
 
 // TODO
-//      Implementar params en configuration, hacer get/set para modificarlo con ros_coordinator
+//      Implementar params en configuration,
+//      hacer get/set para modificarlo con ros_coordinator

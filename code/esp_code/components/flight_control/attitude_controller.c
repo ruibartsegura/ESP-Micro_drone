@@ -51,21 +51,15 @@
 // Complementay
 #define ALPHA 0.98 // Complementary filter constant
 
-
-// Constants for formula (Vel->Position (Roll/Pitch))
-#define rho 1121 // Air pressure at N.C. & 600m over sea level
-#define A 0.003 // frontal cross-sectional area approx
-#define C 1.0 // drag coefficient approx
 #define g 9.81f // Gravity (m/s^2)
-#define m 16.5 // Drone mass
+
 #define MAX_ANGLE 0.35 // 20º in rad
 
 // Limits so the attitude never takes all the throttle of the motors
 #define MAX_RATE    200.0f // Max target roll/pitch rate (deg/s)
 #define MAX_POW_RPY 400.0f // Max power of each roll/pitch/yaw term
 
-#define throttle_base 2378 // Min throttle to hover
-#define max_throttle 3000
+#define THROTTLE_BASE 2378 // Min throttle to hover
 
 // PID H
 #define KP_H 100 // Proportional 350 pow / 1m error
@@ -88,7 +82,7 @@ static GAINS gains = {
     .kp_rate     = KP_RATE,
     .max_rate    = MAX_RATE,
     .max_pow_rpy = MAX_POW_RPY,
-    .base        = throttle_base,
+    .base        = THROTTLE_BASE,
 };
 static pthread_mutex_t gains_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -100,6 +94,7 @@ static pthread_mutex_t gains_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static volatile bool h_reached = false;
 static int64_t t_h_reached_us = -1;   // -1 = no started to count
+static pthread_mutex_t h_lock = PTHREAD_MUTEX_INITIALIZER; // h_reached & t_h_reached_us
 
 // Measures to keep
 static RPY last_rpy;
@@ -139,8 +134,18 @@ void set_gains(const GAINS *in) {
 // ============================================================
 //                  Checker of the height
 // ============================================================
+void reset_h_reached() {
+    pthread_mutex_lock(&h_lock);
+    h_reached = false;
+    t_h_reached_us = -1;
+    pthread_mutex_unlock(&h_lock);
+}
+
 bool check_h_reached() {
-    return h_reached;
+    pthread_mutex_lock(&h_lock);
+    bool reached = h_reached;
+    pthread_mutex_unlock(&h_lock);
+    return reached;
 }
 
 
@@ -243,8 +248,11 @@ void get_roll_pitch(float *roll, float *pitch) {
         dt = 0.0f;
     }
 
-    float roll_acc  = atan2f(acc_lin.y, acc_lin.z) * 180.0f / M_PI;
-    float pitch_acc = atan2f(-acc_lin.x, sqrtf(acc_lin.y*acc_lin.y + acc_lin.z*acc_lin.z)) * 180.0f / M_PI;
+    float roll_acc  = atan2f(acc_lin.y, acc_lin.z)
+                        * 180.0f / M_PI;
+
+    float pitch_acc = atan2f(-acc_lin.x, sqrtf(acc_lin.y*acc_lin.y + acc_lin.z*acc_lin.z))
+                        * 180.0f / M_PI;
 
 
     float roll_angle = (last_rpy.roll + vel_ang.x * dt);
@@ -342,8 +350,7 @@ void control_attitude() {
     // Calculate the power needed for the motors
     pow_roll = clampf(k.kp_rate * err_roll_rate, k.max_pow_rpy);
     pow_pitch = clampf(k.kp_rate * err_pitch_rate, k.max_pow_rpy);
-    pow_yaw = clampf(k.kp_rate * err_yaw_rate, k.max_pow_rpy); // TODO hacer bien PID
-
+    pow_yaw = clampf(k.kp_rate * err_yaw_rate, k.max_pow_rpy);
 
     // ALTITUDE
     vec3_t pos = {0};
@@ -356,16 +363,18 @@ void control_attitude() {
 
 
     // Check if the drone has reached and hold the target H
+    pthread_mutex_lock(&h_lock);
     if (fabsf(err_h) <= DIFF_H_ALLOWED && fabsf(last_vel_z) <= V_STABLE) {
         if (t_h_reached_us < 0) {
-            t_h_reached_us = esp_timer_get_time();   // First time in target
+            t_h_reached_us = esp_timer_get_time(); // First time in target
         }
         h_reached = (esp_timer_get_time() - t_h_reached_us) >= TIME_H_STABLE_MS * 1000LL;
     } else {
         t_h_reached_us = -1;
         h_reached = false;
     }
-    
+    pthread_mutex_unlock(&h_lock);
+
     // Motors power.
     double power[N_MOTORS];
     power[0] = k.base + pow_h + pow_roll - pow_pitch - pow_yaw;
@@ -387,8 +396,8 @@ static void attitude_task(void *arg) {
         if (++log_counter >= 250) {
             log_counter = 0;
             UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
-            // ESP_LOGI("system_task", "stack libre (min historico): %u bytes",
-                        // (unsigned)(free_words * sizeof(StackType_t)));
+            ESP_LOGI("system_task", "stack libre (min historico): %u bytes",
+                        (unsigned)(free_words * sizeof(StackType_t)));
         }
 
         vTaskDelay(pdMS_TO_TICKS(SYSTEM_TASK_PERIOD_MS));
@@ -401,7 +410,12 @@ void init_attitude_controller() {
         return;
     }
 
-    xTaskCreate(attitude_task, "attitude_task", CONFIG_ATTITUDE_TASK_STACK, NULL, CONFIG_ATTITUDE_TASK_PRIO, NULL);
+    xTaskCreate(attitude_task,
+        "attitude_task",
+        CONFIG_ATTITUDE_TASK_STACK,
+        NULL,
+        CONFIG_ATTITUDE_TASK_PRIO,
+        NULL);
 
     is_init = true;
 }

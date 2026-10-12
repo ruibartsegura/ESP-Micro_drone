@@ -87,6 +87,8 @@ bool get_take_off_ready(void) { log_call("get_take_off_ready"); return take_off_
 float get_take_off_alt(void)  { log_call("get_take_off_alt"); return take_off_alt_ret; }
 bool get_landing_ready(void)  { log_call("get_landing_ready"); return landing_ready_ret; }
 bool check_h_reached(void)    { log_call("check_h_reached"); return h_reached_ret; }
+/* Like the real one: the flag is false until the controller sets it again. */
+void reset_h_reached(void)    { log_call("reset_h_reached"); h_reached_ret = false; }
 void init_odom_estimator(void) { log_call("init_odom_estimator"); }
 
 bool get_cmd_vel(geometry_msgs__msg__Twist *out, int max_age_ms) {
@@ -339,14 +341,16 @@ void test_sm_TAKING_OFF_height_reached_goes_to_HOVERING_with_blue_led(void) {
     TEST_ASSERT_EQUAL_INT(0, led_off_count[LED_BLUE]);
 }
 
-/* [BUG] check_h_reached() is computed by the attitude task with the
- * previous target: in ARMING the target is 0 m and the drone is on the
- * ground, so it is already true. In the first cycle of TAKING_OFF the new
- * target has not been used yet and the drone goes to HOVERING on the ground. */
+/* check_h_reached() is computed by the attitude task with the previous
+ * target: in ARMING the target is 0 m and the drone is on the ground, so it
+ * is already true. ARMING calls reset_h_reached() before TAKING_OFF, so the
+ * first cycle of TAKING_OFF does not go to HOVERING on the ground. */
 void test_sm_TAKING_OFF_does_not_trust_the_height_of_the_previous_target(void) {
-    go_to(TAKING_OFF);
-    h_reached_ret = true;   /* still true from the ground (target 0 m) */
-    state_machine();
+    go_to(ARMING);
+    take_off_ready_ret = true;
+    h_reached_ret = true;   /* true from the ground (target 0 m) */
+    state_machine();        /* ARMING -> TAKING_OFF */
+    state_machine();        /* first cycle of TAKING_OFF */
     TEST_ASSERT_EQUAL_INT_MESSAGE(TAKING_OFF, state, "the first cycle sets the new target, it cannot be reached yet");
 }
 
@@ -453,14 +457,16 @@ void test_sm_LANDING_on_the_ground_goes_to_DISARMING(void) {
     TEST_ASSERT_EQUAL_INT(DISARMING, state);
 }
 
-/* [BUG] Same as in TAKING_OFF, but worse: in HOVERING check_h_reached() is
- * true (hover height reached). In the first cycle of LANDING the attitude
- * task has not used the new target (0 m) yet, so it goes to DISARMING and
- * stops the motors in the air. */
+/* Same as in TAKING_OFF: in HOVERING check_h_reached() is true (hover
+ * height reached). HOVERING calls reset_h_reached() before LANDING, so the
+ * first cycle of LANDING does not go to DISARMING and stop the motors in
+ * the air. */
 void test_sm_LANDING_does_not_trust_the_height_of_the_previous_target(void) {
-    go_to(LANDING);
-    h_reached_ret = true;   /* still true from HOVERING */
-    state_machine();
+    go_to(HOVERING);
+    landing_ready_ret = true;
+    h_reached_ret = true;   /* true from HOVERING */
+    state_machine();        /* HOVERING -> LANDING */
+    state_machine();        /* first cycle of LANDING */
     TEST_ASSERT_EQUAL_INT_MESSAGE(LANDING, state, "the motors are stopped in the air");
 }
 
@@ -478,6 +484,84 @@ void test_sm_DISARMING_goes_back_to_ARMING_with_green_led(void) {
     TEST_ASSERT_EQUAL_INT(1, led_on_count[LED_GREEN]);
     TEST_ASSERT_EQUAL_INT(1, led_off_count[LED_RED]);
     TEST_ASSERT_EQUAL_INT(1, led_off_count[LED_BLUE]);
+}
+
+/* reset_h_reached(): every transition that changes the target height clears
+ * the flag of the attitude controller, so the next state does not use a
+ * check_h_reached() computed with the previous target. */
+void test_sm_ARMING_without_takeoff_does_not_reset_h_reached(void) {
+    go_to(ARMING);
+    state_machine();
+    TEST_ASSERT_EQUAL_INT(0, called("reset_h_reached"));
+}
+
+void test_sm_ARMING_takeoff_resets_h_reached_after_arming(void) {
+    go_to(ARMING);
+    take_off_ready_ret = true;
+    state_machine();
+    TEST_ASSERT_EQUAL_INT(1, called("reset_h_reached"));
+    TEST_ASSERT_TRUE(call_index("arm_motors") < call_index("reset_h_reached"));
+    TEST_ASSERT_EQUAL_INT(TAKING_OFF, state);
+}
+
+void test_sm_TAKING_OFF_reached_resets_h_reached(void) {
+    go_to(TAKING_OFF);
+    h_reached_ret = true;
+    state_machine();
+    TEST_ASSERT_EQUAL_INT(HOVERING, state);
+    TEST_ASSERT_EQUAL_INT(1, called("reset_h_reached"));
+}
+
+void test_sm_TAKING_OFF_not_reached_does_not_reset_h_reached(void) {
+    go_to(TAKING_OFF);
+    for (int i = 0; i < 4; i++) state_machine();
+    TEST_ASSERT_EQUAL_INT(0, called("reset_h_reached"));
+}
+
+void test_sm_HOVERING_does_not_reset_h_reached_while_hovering(void) {
+    go_to(HOVERING);
+    for (int i = 0; i < 4; i++) state_machine();
+    TEST_ASSERT_EQUAL_INT(0, called("reset_h_reached"));
+}
+
+void test_sm_HOVERING_land_resets_h_reached(void) {
+    go_to(HOVERING);
+    landing_ready_ret = true;
+    state_machine();
+    TEST_ASSERT_EQUAL_INT(LANDING, state);
+    TEST_ASSERT_EQUAL_INT(1, called("reset_h_reached"));
+}
+
+void test_sm_EXTERNAL_CONTROL_land_resets_h_reached(void) {
+    go_to(EXTERNAL_CONTROL);
+    cmd_vel_fresh_ret = true;
+    landing_ready_ret = true;
+    state_machine();
+    TEST_ASSERT_EQUAL_INT(LANDING, state);
+    TEST_ASSERT_EQUAL_INT(1, called("reset_h_reached"));
+}
+
+void test_sm_LANDING_on_the_ground_resets_h_reached(void) {
+    go_to(LANDING);
+    h_reached_ret = true;
+    state_machine();
+    TEST_ASSERT_EQUAL_INT(DISARMING, state);
+    TEST_ASSERT_EQUAL_INT(1, called("reset_h_reached"));
+}
+
+void test_sm_full_flight_resets_h_reached_in_every_height_change(void) {
+    go_to(ARMING);
+    take_off_ready_ret = true;
+    state_machine();                 /* ARMING -> TAKING_OFF */
+    take_off_ready_ret = false;
+    h_reached_ret = true;
+    state_machine();                 /* TAKING_OFF -> HOVERING */
+    landing_ready_ret = true;
+    state_machine();                 /* HOVERING -> LANDING */
+    h_reached_ret = true;
+    state_machine();                 /* LANDING -> DISARMING */
+    TEST_ASSERT_EQUAL_INT(DISARMING, state);
+    TEST_ASSERT_EQUAL_INT(4, called("reset_h_reached"));
 }
 
 void test_sm_ERROR_is_final(void) {
@@ -604,6 +688,15 @@ int main(void) {
     RUN_TEST(test_sm_LANDING_does_not_trust_the_height_of_the_previous_target);
     RUN_TEST(test_sm_DISARMING_stops_and_disarms_the_motors);
     RUN_TEST(test_sm_DISARMING_goes_back_to_ARMING_with_green_led);
+    RUN_TEST(test_sm_ARMING_without_takeoff_does_not_reset_h_reached);
+    RUN_TEST(test_sm_ARMING_takeoff_resets_h_reached_after_arming);
+    RUN_TEST(test_sm_TAKING_OFF_reached_resets_h_reached);
+    RUN_TEST(test_sm_TAKING_OFF_not_reached_does_not_reset_h_reached);
+    RUN_TEST(test_sm_HOVERING_does_not_reset_h_reached_while_hovering);
+    RUN_TEST(test_sm_HOVERING_land_resets_h_reached);
+    RUN_TEST(test_sm_EXTERNAL_CONTROL_land_resets_h_reached);
+    RUN_TEST(test_sm_LANDING_on_the_ground_resets_h_reached);
+    RUN_TEST(test_sm_full_flight_resets_h_reached_in_every_height_change);
     RUN_TEST(test_sm_ERROR_is_final);
     RUN_TEST(test_sm_full_flight);
 

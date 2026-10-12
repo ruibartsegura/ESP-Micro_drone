@@ -11,7 +11,7 @@
  *     2. Attitude estimation: get_roll_pitch() (gyro + accelerometer).
  *     3. Outer loop: cmd_vel_2_RP() (velocity -> target roll / pitch).
  *     4. Inner loop: angular rate -> motor mix (roll / pitch / yaw).
- *     5. Height: collective thrust and check_h_reached().
+ *     5. Height: collective thrust, check_h_reached() and reset_h_reached().
  *     6. Height estimation: get_h() (accelerometer + barometer) and
  *        get_vel_z().
  *     7. Gains: get_gains() / set_gains().
@@ -57,17 +57,9 @@
 #endif
 #include MODULE_SRC
 
-/* Save the physical constants and remove the one letter macros (A, C, g, m). */
-static const float K_RHO = rho;
-static const float K_A   = A;
-static const float K_CD  = C;
-static const float K_G   = g;
-static const float K_M   = m;
-#undef A
-#undef C
+/* Save the gravity and remove the one letter macro g. */
+static const float K_G = g;
 #undef g
-#undef m
-#undef rho
 
 /* ------------------------------------------------------------------ */
 /*                               MOCKS                                */
@@ -87,7 +79,7 @@ void set_motor_speed(double power[N_MOTORS]) {
 /*                              HELPERS                               */
 /* ------------------------------------------------------------------ */
 #define DT_NS 15000000LL   /* 15 ms, period of the task */
-#define BASE  ((double)throttle_base)
+#define BASE  ((double)THROTTLE_BASE)
 
 typedef struct { double h, r, p, y; } Mix;
 
@@ -443,7 +435,7 @@ void test_int_at_target_height_motors_get_the_hover_throttle(void) {
     mock_target.h = 0.5f;
     settle();
     for (int i = 0; i < N_MOTORS; i++)
-        TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1.0, BASE, motors[i], "hover needs throttle_base on every motor");
+        TEST_ASSERT_DOUBLE_WITHIN_MESSAGE(1.0, BASE, motors[i], "hover needs THROTTLE_BASE on every motor");
 }
 
 void test_int_roll_rate_error_only_moves_the_roll_channel(void) {
@@ -685,6 +677,85 @@ void test_h_not_reached_far_away(void) {
     TEST_ASSERT_FALSE(check_h_reached());
 }
 
+/* reset_h_reached(): called by system.c when the target height changes. */
+void test_h_reset_clears_the_flag_and_the_timer(void) {
+    mock_target.h = 1.0f;
+    set_baro(1.0f);
+    settle();
+    TEST_ASSERT_TRUE(check_h_reached());
+    TEST_ASSERT_TRUE(t_h_reached_us >= 0);
+    reset_h_reached();
+    TEST_ASSERT_FALSE(check_h_reached());
+    TEST_ASSERT_EQUAL_INT64(-1, t_h_reached_us);
+}
+
+/* After the reset the drone has to stay TIME_H_STABLE_MS at the target again. */
+void test_h_reset_waits_time_h_stable_again(void) {
+    mock_target.h = 0.0f;
+    settle();
+    TEST_ASSERT_TRUE(check_h_reached());
+    reset_h_reached();
+    step();
+    TEST_ASSERT_FALSE_MESSAGE(check_h_reached(), "the first cycle only starts the timer");
+    int steps = 1;
+    while (!check_h_reached() && steps < 100) { step(); steps++; }
+    TEST_ASSERT_TRUE(check_h_reached());
+    TEST_ASSERT_INT_WITHIN(1, 35, steps);
+}
+
+/* Landing: hover height reached, reset, new target 0 m. It is not reached
+ * until the drone is on the ground. */
+void test_h_reset_and_new_target_is_reached_only_there(void) {
+    mock_target.h = 1.0f;
+    set_baro(1.0f);
+    settle();
+    TEST_ASSERT_TRUE(check_h_reached());
+    reset_h_reached();
+    mock_target.h = 0.0f;
+    step();
+    TEST_ASSERT_FALSE(check_h_reached());
+    set_baro(0.0f);
+    settle();
+    TEST_ASSERT_TRUE(check_h_reached());
+}
+
+void test_h_reset_when_not_reached_does_nothing(void) {
+    reset_h_reached();
+    TEST_ASSERT_FALSE(check_h_reached());
+    TEST_ASSERT_EQUAL_INT64(-1, t_h_reached_us);
+    mock_target.h = 0.0f;
+    settle();
+    TEST_ASSERT_TRUE(check_h_reached());
+}
+
+/* It only clears the flag: the height filter and the gains are not touched. */
+void test_h_reset_does_not_change_the_estimation_or_the_gains(void) {
+    mock_target.h = 1.0f;
+    set_baro(0.8f);
+    settle();
+    float h = h_est, v = last_vel_z, e = err_h;
+    GAINS before, after;
+    get_gains(&before);
+    reset_h_reached();
+    get_gains(&after);
+    TEST_ASSERT_EQUAL_FLOAT(h, h_est);
+    TEST_ASSERT_EQUAL_FLOAT(v, last_vel_z);
+    TEST_ASSERT_EQUAL_FLOAT(e, err_h);
+    TEST_ASSERT_EQUAL_MEMORY(&before, &after, sizeof before);
+}
+
+/* reset_h_reached(), check_h_reached() and control_attitude() take h_lock:
+ * they have to leave it free. */
+void test_h_reset_releases_the_lock(void) {
+    reset_h_reached();
+    TEST_ASSERT_EQUAL_INT(0, pthread_mutex_trylock(&h_lock));
+    pthread_mutex_unlock(&h_lock);
+    check_h_reached();
+    step();
+    TEST_ASSERT_EQUAL_INT(0, pthread_mutex_trylock(&h_lock));
+    pthread_mutex_unlock(&h_lock);
+}
+
 /* ------------------------------------------------------------------ */
 /*                        6. HEIGHT ESTIMATION                        */
 /* ------------------------------------------------------------------ */
@@ -791,7 +862,7 @@ void test_gains_start_with_the_defines(void) {
     TEST_ASSERT_EQUAL_FLOAT(KP_RATE, k.kp_rate);
     TEST_ASSERT_EQUAL_FLOAT(MAX_RATE, k.max_rate);
     TEST_ASSERT_EQUAL_FLOAT(MAX_POW_RPY, k.max_pow_rpy);
-    TEST_ASSERT_EQUAL_FLOAT(throttle_base, k.base);
+    TEST_ASSERT_EQUAL_FLOAT(THROTTLE_BASE, k.base);
 }
 
 void test_gains_set_and_get(void) {
@@ -923,6 +994,12 @@ int main(void) {
     RUN_TEST(test_h_leaving_the_target_restarts_the_timer);
     RUN_TEST(test_h_control_does_not_overwrite_the_barometer);
     RUN_TEST(test_h_not_reached_far_away);
+    RUN_TEST(test_h_reset_clears_the_flag_and_the_timer);
+    RUN_TEST(test_h_reset_waits_time_h_stable_again);
+    RUN_TEST(test_h_reset_and_new_target_is_reached_only_there);
+    RUN_TEST(test_h_reset_when_not_reached_does_nothing);
+    RUN_TEST(test_h_reset_does_not_change_the_estimation_or_the_gains);
+    RUN_TEST(test_h_reset_releases_the_lock);
 
     RUN_TEST(test_hest_waits_for_the_first_barometer_sample);
     RUN_TEST(test_hest_first_sample_is_the_ground);

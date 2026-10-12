@@ -35,15 +35,13 @@
 #define ACCEL_SCALE 16384.0f // LSB/g para ±2g
 #define GYRO_SCALE  131.0f   // LSB/(°/s) para ±250°/s
 
-static esp_err_t mpu6050_write_reg(i2c_port_t i2c_num, uint8_t reg, uint8_t value)
-{
+static esp_err_t mpu6050_write_reg(i2c_port_t i2c_num, uint8_t reg, uint8_t value) {
     uint8_t buf[2] = { reg, value };
     return i2c_master_write_to_device(i2c_num, MPU6050_ADDR, buf, sizeof(buf),
                                        1000 / portTICK_PERIOD_MS);
 }
 
-esp_err_t mpu6050_init(i2c_port_t i2c_num)
-{
+esp_err_t mpu6050_init(i2c_port_t i2c_num) {
     esp_err_t ret;
 
     // FIX 1: antes se escribía un byte suelto (0x00) sin indicar el
@@ -90,8 +88,7 @@ esp_err_t mpu6050_init(i2c_port_t i2c_num)
 esp_err_t mpu6050_read_raw_data(i2c_port_t i2c_num,
                                  int16_t *accel_x, int16_t *accel_y, int16_t *accel_z,
                                  int16_t *gyro_x, int16_t *gyro_y, int16_t *gyro_z,
-                                 int64_t *t_stamp)
-{
+                                 int64_t *t_stamp) {
     uint8_t data[14];
     esp_err_t ret;
     uint8_t reg_addr = MPU6050_REG_ACCEL_XOUT_H;
@@ -124,8 +121,7 @@ esp_err_t mpu6050_read_raw_data(i2c_port_t i2c_num,
 
 void mpu6050_convert_accel(int16_t raw_x, int16_t raw_y, int16_t raw_z,
                             const float bias[3],
-                            float *accel_x, float *accel_y, float *accel_z)
-{
+                            float *accel_x, float *accel_y, float *accel_z) {
     *accel_x = (raw_x / ACCEL_SCALE) - bias[0];
     *accel_y = (raw_y / ACCEL_SCALE) - bias[1];
     *accel_z = (raw_z / ACCEL_SCALE) - bias[2];
@@ -133,15 +129,13 @@ void mpu6050_convert_accel(int16_t raw_x, int16_t raw_y, int16_t raw_z,
 
 void mpu6050_convert_gyro(int16_t raw_x, int16_t raw_y, int16_t raw_z,
                            const float bias[3],
-                           float *gyro_x, float *gyro_y, float *gyro_z)
-{
+                           float *gyro_x, float *gyro_y, float *gyro_z) {
     *gyro_x = (raw_x / GYRO_SCALE) - bias[0];
     *gyro_y = (raw_y / GYRO_SCALE) - bias[1];
     *gyro_z = (raw_z / GYRO_SCALE) - bias[2];
 }
 
-esp_err_t mpu6050_calibrate(i2c_port_t i2c_num, float *accel_bias, float *gyro_bias)
-{
+esp_err_t mpu6050_calibrate(i2c_port_t i2c_num, float *accel_bias, float *gyro_bias) {
     int16_t accel_x, accel_y, accel_z;
     int16_t gyro_x, gyro_y, gyro_z;
     float accel_x_g, accel_y_g, accel_z_g;

@@ -19,11 +19,9 @@
 #include <uros_network_interfaces.h>
 #include <rcl/rcl.h>
 #include <rcl/error_handling.h>
-#include <std_msgs/msg/int32.h>
 #include <rclc/rclc.h>
 #include <rclc/executor.h>
-
-
+#include <std_msgs/msg/int32.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -33,10 +31,7 @@
 #include "system.h"
 
 
-
-
-void app_main()
-{
+void app_main() {
     // Start the system
     system_start();
 }

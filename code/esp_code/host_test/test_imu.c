@@ -48,6 +48,13 @@
 /* ------------------------------------------------------------------ */
 /*                           FAKE SAMPLES                             */
 /* ------------------------------------------------------------------ */
+/* Sample of the fake sensor (imu.h no longer has its own type) */
+typedef struct {
+    float Acc_lin_X, Acc_lin_Y, Acc_lin_Z;
+    float Vel_ang_X, Vel_ang_Y, Vel_ang_Z;
+    int64_t Time_stamp;
+} IMU;
+
 #define MAX_SAMPLES 64
 static IMU fake_samples[MAX_SAMPLES];
 static int fake_n;          /* samples available (the last one repeats) */

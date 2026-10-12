@@ -46,8 +46,7 @@ static const char *TAG = "BMP180";
 
 // ---------- Helpers de bajo nivel I2C ----------
 
-static esp_err_t bmp180_write_reg(bmp180_t *dev, uint8_t reg, uint8_t value)
-{
+static esp_err_t bmp180_write_reg(bmp180_t *dev, uint8_t reg, uint8_t value) {
     uint8_t buf[2] = { reg, value };
     return i2c_master_write_to_device(dev->i2c_port, BMP180_I2C_ADDR, buf,
                                        sizeof(buf),
@@ -55,24 +54,24 @@ static esp_err_t bmp180_write_reg(bmp180_t *dev, uint8_t reg, uint8_t value)
 }
 
 static esp_err_t bmp180_read_regs(bmp180_t *dev, uint8_t reg, uint8_t *data,
-                                   size_t len)
-{
+                                   size_t len) {
     return i2c_master_write_read_device(dev->i2c_port, BMP180_I2C_ADDR,
                                          &reg, 1, data, len,
                                          pdMS_TO_TICKS(I2C_TIMEOUT_MS));
 }
 
 // Parser from Big Endian
-static inline int16_t be16(const uint8_t *p)
-{
+static inline int16_t be16(const uint8_t *p) {
     return (int16_t)((p[0] << 8) | p[1]);
 }
 
 // ---------- API publica ----------
 
-esp_err_t bmp180_init(bmp180_t *dev, i2c_port_t i2c_port, bmp180_mode_t mode)
-{
-    if (dev == NULL || mode < BMP180_MODE_ULTRA_LOW_POWER || mode > BMP180_MODE_ULTRA_HIGH_RES) {
+esp_err_t bmp180_init(bmp180_t *dev, i2c_port_t i2c_port, bmp180_mode_t mode) {
+    if (dev == NULL
+        || mode < BMP180_MODE_ULTRA_LOW_POWER
+        || mode > BMP180_MODE_ULTRA_HIGH_RES
+    ) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -120,13 +119,12 @@ esp_err_t bmp180_init(bmp180_t *dev, i2c_port_t i2c_port, bmp180_mode_t mode)
     dev->MC  = be16(&cal[18]);
     dev->MD  = be16(&cal[20]);
 
-    // // ESP_LOGI(TAG, "BMP180 inicializado correctamente (chip id 0x%02X)", chip_id);
+    ESP_LOGI(TAG, "BMP180 inicializado correctamente (chip id 0x%02X)", chip_id);
     return ESP_OK;
 }
 
 // Lee el valor crudo de temperatura (UT) sin compensar
-static esp_err_t bmp180_read_raw_temp(bmp180_t *dev, int32_t *ut)
-{
+static esp_err_t bmp180_read_raw_temp(bmp180_t *dev, int32_t *ut) {
     esp_err_t err = bmp180_write_reg(dev, BMP180_REG_CTRL, BMP180_CMD_READ_TEMP);
     if (err != ESP_OK) return err;
 
@@ -141,8 +139,7 @@ static esp_err_t bmp180_read_raw_temp(bmp180_t *dev, int32_t *ut)
 }
 
 // Lee el valor crudo de presion (UP) sin compensar, segun el OSS configurado
-static esp_err_t bmp180_read_raw_pressure(bmp180_t *dev, int32_t *up)
-{
+static esp_err_t bmp180_read_raw_pressure(bmp180_t *dev, int32_t *up) {
     uint8_t cmd = BMP180_CMD_READ_PRESS | (dev->mode << 6);
     esp_err_t err = bmp180_write_reg(dev, BMP180_REG_CTRL, cmd);
     if (err != ESP_OK) return err;
@@ -162,8 +159,7 @@ static esp_err_t bmp180_read_raw_pressure(bmp180_t *dev, int32_t *up)
 
 // Calcula B5 (valor intermedio compartido por temperatura y presion).
 // Devuelve BMP180_B5_INVALID si la calibracion da una division por cero.
-int32_t bmp180_compute_b5(const bmp180_t *dev, int32_t ut)
-{
+int32_t bmp180_compute_b5(const bmp180_t *dev, int32_t ut) {
     int32_t x1 = ((ut - (int32_t)dev->AC6) * (int32_t)dev->AC5) >> 15;
     int32_t den = x1 + dev->MD;
     if (den == 0) {
@@ -173,15 +169,13 @@ int32_t bmp180_compute_b5(const bmp180_t *dev, int32_t ut)
     return x1 + x2;
 }
 
-void bmp180_compensate_temperature(int32_t b5, float *temperature_c)
-{
+void bmp180_compensate_temperature(int32_t b5, float *temperature_c) {
     int32_t t = (b5 + 8) >> 4; // decimas de grado
     *temperature_c = t / 10.0f;
 }
 
 esp_err_t bmp180_compensate_pressure(const bmp180_t *dev, int32_t b5,
-                                      int32_t up, int32_t *pressure_pa)
-{
+                                      int32_t up, int32_t *pressure_pa) {
     if (dev == NULL || pressure_pa == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -217,8 +211,7 @@ esp_err_t bmp180_compensate_pressure(const bmp180_t *dev, int32_t b5,
     return ESP_OK;
 }
 
-esp_err_t bmp180_read_temperature(bmp180_t *dev, float *temperature_c)
-{
+esp_err_t bmp180_read_temperature(bmp180_t *dev, float *temperature_c) {
     if (dev == NULL || temperature_c == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -234,8 +227,7 @@ esp_err_t bmp180_read_temperature(bmp180_t *dev, float *temperature_c)
     return ESP_OK;
 }
 
-esp_err_t bmp180_read_pressure(bmp180_t *dev, int32_t *pressure_pa)
-{
+esp_err_t bmp180_read_pressure(bmp180_t *dev, int32_t *pressure_pa) {
     if (dev == NULL || pressure_pa == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -253,8 +245,7 @@ esp_err_t bmp180_read_pressure(bmp180_t *dev, int32_t *pressure_pa)
     return bmp180_compensate_pressure(dev, b5, up, pressure_pa);
 }
 
-float bmp180_pressure_to_altitude(float pressure_pa, float sea_level_pa)
-{
+float bmp180_pressure_to_altitude(float pressure_pa, float sea_level_pa) {
     if (!(pressure_pa > 0.0f)) {
         return NAN;   // 0 Pa, negative or NaN is not a valid reading
     }

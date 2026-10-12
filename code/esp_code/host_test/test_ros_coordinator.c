@@ -30,7 +30,7 @@
  *   - find_handle(): looks for an executor handle.
  *   - setUp() / tearDown(): reset the mocks, the module and the state.
  *   - test_params_*, test_cmdvel_*, test_takeoff_*, test_land_*,
- *     test_imu_msg_*, test_task_*, test_init_*, test_sim_*.
+ *     test_state_msg_*, test_task_*, test_init_*, test_sim_*.
  *   - main(): runs all the tests.
  */
 #include <pthread.h>
@@ -101,7 +101,7 @@ static void reset_module(void) {
     memset(&cmd_vel_msg, 0, sizeof cmd_vel_msg);
     memset(&cmd_vel, 0, sizeof cmd_vel);
     t_last_vel = -1;
-    memset(&imu_msg, 0, sizeof imu_msg);
+    memset(&state_msg, 0, sizeof state_msg);
 #ifdef CONFIG_SIMULATION_ON
     memset(&imu_sub_msg, 0, sizeof imu_sub_msg);
     memset(&h_sub_msg, 0, sizeof h_sub_msg);
@@ -486,62 +486,160 @@ void test_land_getter_uses_the_mutex(void) {
 }
 
 /* ------------------------------------------------------------------ */
-/*                       IMU MESSAGE (drone/imu_data)                 */
+/*                      STATE MESSAGE (drone/state)                   */
 /* ------------------------------------------------------------------ */
-/* [BUG] fill_imu_msg() first writes angular_velocity in rad/s and then
- * overwrites it with vel_ang * g (it should be
- * linear_acceleration = acc_lin * g). */
-void test_imu_msg_angular_velocity_in_rad_per_s(void) {
-    sensor_msgs__msg__Imu m;
+void test_state_msg_angular_velocity_in_rad_per_s(void) {
+    my_msgs__msg__State m;
     memset(&m, 0, sizeof m);
     set_vel_ang(90.0f, -45.0f, 180.0f);   /* deg/s */
-    fill_imu_msg(&m);
-    TEST_ASSERT_DOUBLE_WITHIN(1e-4, M_PI / 2, m.angular_velocity.x);
-    TEST_ASSERT_DOUBLE_WITHIN(1e-4, -M_PI / 4, m.angular_velocity.y);
-    TEST_ASSERT_DOUBLE_WITHIN(1e-4, M_PI, m.angular_velocity.z);
+    fill_state_msg(&m);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-4, M_PI / 2, m.vel_ang.x);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-4, -M_PI / 4, m.vel_ang.y);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-4, M_PI, m.vel_ang.z);
 }
 
-/* [BUG] The linear acceleration is never written (see the test above). */
-void test_imu_msg_linear_acceleration_in_m_per_s2(void) {
-    sensor_msgs__msg__Imu m;
+void test_state_msg_linear_acceleration_in_m_per_s2(void) {
+    my_msgs__msg__State m;
     memset(&m, 0, sizeof m);
     set_acc_lin(0.0f, 0.5f, 1.0f);   /* g */
-    fill_imu_msg(&m);
-    TEST_ASSERT_DOUBLE_WITHIN(1e-4, 0.0, m.linear_acceleration.x);
-    TEST_ASSERT_DOUBLE_WITHIN(1e-4, 0.5 * GRAVITY, m.linear_acceleration.y);
-    TEST_ASSERT_DOUBLE_WITHIN(1e-4, GRAVITY, m.linear_acceleration.z);
+    fill_state_msg(&m);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-4, 0.0, m.acc_lin.x);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-4, 0.5 * GRAVITY, m.acc_lin.y);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-4, GRAVITY, m.acc_lin.z);
 }
 
-/* [BUG] esp_timer_get_time() returns microseconds, but fill_imu_msg()
- * treats it as milliseconds: after 2.5 s the stamp says 2500 s. */
-void test_imu_msg_stamp_from_microseconds(void) {
-    sensor_msgs__msg__Imu m;
+#ifndef CONFIG_SIMULATION_ON
+/* Before the time sync the stamp is the time since boot
+ * (esp_timer_get_time() is in microseconds). */
+void test_state_msg_stamp_from_microseconds(void) {
+    my_msgs__msg__State m;
     memset(&m, 0, sizeof m);
     mock_time_us = 2500000;   /* 2.5 s */
-    fill_imu_msg(&m);
+    fill_state_msg(&m);
     TEST_ASSERT_EQUAL_INT32(2, m.header.stamp.sec);
     TEST_ASSERT_EQUAL_UINT32(500000000u, m.header.stamp.nanosec);
 }
 
-void test_imu_msg_nanosec_is_always_less_than_1_s(void) {
-    sensor_msgs__msg__Imu m;
+/* After the time sync the stamp is the ROS time of the agent (epoch). */
+void test_state_msg_stamp_is_the_agent_time_when_synced(void) {
+    my_msgs__msg__State m;
+    memset(&m, 0, sizeof m);
+    mock_time_us = 2500000;
+    mock_uros_synced = true;
+    mock_uros_epoch_ns = 1760000000LL * 1000000000LL + 123456789LL;
+    fill_state_msg(&m);
+    TEST_ASSERT_EQUAL_INT32(1760000000, m.header.stamp.sec);
+    TEST_ASSERT_EQUAL_UINT32(123456789u, m.header.stamp.nanosec);
+}
+#else
+/* In simulation the ROS time is the time of Gazebo (last IMU sample). */
+void test_state_msg_stamp_is_the_gazebo_time(void) {
+    my_msgs__msg__State m;
+    memset(&m, 0, sizeof m);
+    mock_time_us = 9000000;            /* not used */
+    mock_uros_synced = true;           /* not used */
+    mock_uros_epoch_ns = 1;
+    set_time_imu(2500000000LL);        /* 2.5 s of sim time */
+    fill_state_msg(&m);
+    TEST_ASSERT_EQUAL_INT32(2, m.header.stamp.sec);
+    TEST_ASSERT_EQUAL_UINT32(500000000u, m.header.stamp.nanosec);
+}
+#endif
+
+void test_state_msg_nanosec_is_always_less_than_1_s(void) {
+    my_msgs__msg__State m;
     for (int64_t t = 0; t < 5000000; t += 123457) {
         mock_time_us = t;
-        fill_imu_msg(&m);
+        set_time_imu(t * 1000);
+        fill_state_msg(&m);
         TEST_ASSERT_TRUE(m.header.stamp.nanosec < 1000000000u);
     }
 }
 
-void test_imu_msg_timer_publishes_on_drone_imu_data(void) {
+void test_state_msg_position(void) {
+    my_msgs__msg__State m;
+    memset(&m, 0, sizeof m);
+    set_position(1.5f, -2.0f);
+    set_h(0.75f);
+    fill_state_msg(&m);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, 1.5, m.pos.x);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, -2.0, m.pos.y);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, 0.75, m.pos.z);
+}
+
+void test_state_msg_orientation(void) {
+    my_msgs__msg__State m;
+    memset(&m, 0, sizeof m);
+    set_orientation(0.1f, 0.2f, 0.3f, 0.9f);
+    fill_state_msg(&m);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, 0.1, m.q.x);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, 0.2, m.q.y);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, 0.3, m.q.z);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, 0.9, m.q.w);
+}
+
+void test_state_msg_initial_orientation_is_valid(void) {
+    my_msgs__msg__State m;
+    memset(&m, 0, sizeof m);
+    fill_state_msg(&m);   /* state_init(): q = (0, 0, 0, 1) */
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, 1.0, m.q.w);
+}
+
+void test_state_msg_linear_velocity_in_m_per_s(void) {
+    my_msgs__msg__State m;
+    memset(&m, 0, sizeof m);
+    set_vel_lin(0.5f, -0.25f, 1.0f);
+    fill_state_msg(&m);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, 0.5, m.vel_lin.x);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, -0.25, m.vel_lin.y);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, 1.0, m.vel_lin.z);
+}
+
+void test_state_msg_sm_state(void) {
+    my_msgs__msg__State m;
+    memset(&m, 0, sizeof m);
+    set_state(HOVERING);
+    fill_state_msg(&m);
+    TEST_ASSERT_EQUAL_UINT8(my_msgs__msg__State__HOVERING, m.sm_state);
+    set_state(ERROR);
+    fill_state_msg(&m);
+    TEST_ASSERT_EQUAL_UINT8(my_msgs__msg__State__ERROR, m.sm_state);
+}
+
+void test_state_msg_sm_state_values_match_the_enum(void) {
+    TEST_ASSERT_EQUAL_INT(INIT, my_msgs__msg__State__INIT);
+    TEST_ASSERT_EQUAL_INT(CHECKING, my_msgs__msg__State__CHECKING);
+    TEST_ASSERT_EQUAL_INT(ARMING, my_msgs__msg__State__ARMING);
+    TEST_ASSERT_EQUAL_INT(TAKING_OFF, my_msgs__msg__State__TAKING_OFF);
+    TEST_ASSERT_EQUAL_INT(HOVERING, my_msgs__msg__State__HOVERING);
+    TEST_ASSERT_EQUAL_INT(EXTERNAL_CONTROL, my_msgs__msg__State__EXTERNAL_CONTROL);
+    TEST_ASSERT_EQUAL_INT(LANDING, my_msgs__msg__State__LANDING);
+    TEST_ASSERT_EQUAL_INT(DISARMING, my_msgs__msg__State__DISARMING);
+    TEST_ASSERT_EQUAL_INT(ERROR, my_msgs__msg__State__ERROR);
+}
+
+/* The timer fills the message with the current state before publishing it. */
+void test_state_msg_timer_publishes_the_current_state(void) {
+    rcl_timer_t t;
+    set_state(LANDING);
+    set_h(0.4f);
+    set_vel_ang(90.0f, 0.0f, 0.0f);
+    timer_callback(&t, 0);
+    TEST_ASSERT_EQUAL_UINT8(my_msgs__msg__State__LANDING, state_msg.sm_state);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, 0.4, state_msg.pos.z);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-4, M_PI / 2, state_msg.vel_ang.x);
+}
+
+void test_state_msg_timer_publishes_on_drone_state(void) {
     rcl_timer_t t;
     set_state(HOVERING);
     timer_callback(&t, 0);
     TEST_ASSERT_EQUAL_INT(1, mock_rcl_publish_calls);
-    TEST_ASSERT_EQUAL_PTR(&imu_pub, mock_rcl_last_pub);
-    TEST_ASSERT_EQUAL_PTR(&imu_msg, mock_rcl_last_msg);
+    TEST_ASSERT_EQUAL_PTR(&state_pub, mock_rcl_last_pub);
+    TEST_ASSERT_EQUAL_PTR(&state_msg, mock_rcl_last_msg);
 }
 
-void test_imu_msg_timer_null_does_nothing(void) {
+void test_state_msg_timer_null_does_nothing(void) {
     timer_callback(NULL, 0);
     TEST_ASSERT_EQUAL_INT(0, mock_rcl_publish_calls);
 }
@@ -566,20 +664,23 @@ void test_task_turns_on_the_esp_led_when_connected(void) {
     TEST_ASSERT_EQUAL_INT(1, led_on_calls[LED_ESP]);
 }
 
-void test_task_imu_publisher(void) {
+void test_task_state_publisher(void) {
     run_ros_task();
-    const mock_ros_entity_t *e = mock_ros_find(MOCK_ROS_PUB, "drone/imu_data");
+    const mock_ros_entity_t *e = mock_ros_find(MOCK_ROS_PUB, "drone/state");
     TEST_ASSERT_NOT_NULL(e);
-    TEST_ASSERT_EQUAL_STRING("sensor_msgs/msg/Imu", e->type);
+    TEST_ASSERT_EQUAL_STRING("my_msgs/msg/State", e->type);
     TEST_ASSERT_TRUE(e->best_effort);
-    TEST_ASSERT_EQUAL_PTR(&imu_pub, e->handle);
+    TEST_ASSERT_EQUAL_PTR(&state_pub, e->handle);
 }
 
-void test_task_imu_message_is_prepared(void) {
+void test_task_no_imu_publisher(void) {
     run_ros_task();
-    TEST_ASSERT_EQUAL_STRING("imu_link", imu_msg.header.frame_id.data);
-    TEST_ASSERT_EQUAL_DOUBLE_MESSAGE(-1.0, imu_msg.orientation_covariance[0],
-                                     "-1 = no orientation (REP 145)");
+    TEST_ASSERT_NULL(mock_ros_find(MOCK_ROS_PUB, "drone/imu_data"));
+}
+
+void test_task_state_message_is_prepared(void) {
+    run_ros_task();
+    TEST_ASSERT_EQUAL_STRING("odom", state_msg.header.frame_id.data);
 }
 
 void test_task_params_subscriber(void) {
@@ -691,6 +792,44 @@ void test_task_no_agent_no_led(void) {
 }
 
 #ifndef CONFIG_SIMULATION_ON
+void test_task_syncs_the_time_with_the_agent(void) {
+    run_ros_task();
+    TEST_ASSERT_EQUAL_INT(1, mock_uros_sync_calls);
+    TEST_ASSERT_EQUAL_INT(TIME_SYNC_TIMEOUT_MS, mock_uros_sync_timeout_ms);
+    TEST_ASSERT_TRUE(rmw_uros_epoch_synchronized());
+}
+
+void test_task_without_agent_does_not_sync_the_time(void) {
+    mock_rcl_fail_at = 3;   /* support init fails */
+    run_ros_task();
+    TEST_ASSERT_EQUAL_INT(0, mock_uros_sync_calls);
+}
+
+/* If the sync fails the task goes on (stamps with the time since boot). */
+void test_task_time_sync_error_does_not_stop_the_task(void) {
+    mock_uros_sync_ret = 1;   /* RMW_RET_ERROR */
+    run_ros_task();
+    TEST_ASSERT_EQUAL_INT(1, mock_uros_sync_calls);
+    TEST_ASSERT_EQUAL_INT(0, mock_task_delete_calls);
+    TEST_ASSERT_EQUAL_INT(1, mock_spin_calls);
+    TEST_ASSERT_FALSE(rmw_uros_epoch_synchronized());
+}
+
+void test_task_resyncs_the_time_every_60_s(void) {
+    TEST_ASSERT_EQUAL_INT64(60000000LL, TIME_SYNC_PERIOD_US);
+    mock_time_step_us = 30000000;   /* every esp_timer_get_time() is 30 s later */
+    mock_spin_max = 5;              /* 4 loops: t = 60, 90, 120, 150 s */
+    mock_run_task(micro_ros_task, NULL, 1000);
+    TEST_ASSERT_EQUAL_INT(3, mock_uros_sync_calls);   /* start, 60 s, 120 s */
+}
+
+void test_task_does_not_resync_before_60_s(void) {
+    mock_time_step_us = 1000000;    /* 1 s */
+    mock_spin_max = 30;
+    mock_run_task(micro_ros_task, NULL, 1000);
+    TEST_ASSERT_EQUAL_INT(1, mock_uros_sync_calls);
+}
+
 void test_task_hardware_has_no_simulation_topics(void) {
     run_ros_task();
     TEST_ASSERT_NULL(mock_ros_find(MOCK_ROS_SUB, "imu/data"));
@@ -744,6 +883,14 @@ void test_init_network_error_is_checked(void) {
 #ifdef CONFIG_SIMULATION_ON
 void test_sim_has_8_handles(void) {
     TEST_ASSERT_EQUAL_INT(8, N_HANDLERS);
+}
+
+/* In simulation the time comes from Gazebo: no sync with the agent. */
+void test_sim_task_does_not_sync_the_time(void) {
+    mock_time_step_us = 30000000;
+    mock_spin_max = 5;
+    mock_run_task(micro_ros_task, NULL, 1000);
+    TEST_ASSERT_EQUAL_INT(0, mock_uros_sync_calls);
 }
 
 void test_sim_imu_subscriber(void) {
@@ -936,7 +1083,7 @@ void test_sim_motors_timer_publishes_the_last_command(void) {
     double p2[NUM_MOTORS] = { 10, 20, 30, 40 };
     pub_motor_speed(p1);
     pub_motor_speed(p2);   /* overwrites the first one */
-    mock_time_us = 7250000;
+    set_time_imu(7250000000LL);   /* Gazebo time: 7.25 s */
     motors_timer_callback(&t, 0);
     TEST_ASSERT_EQUAL_INT(1, mock_rcl_publish_calls);
     TEST_ASSERT_EQUAL_PTR(&motors_pub, mock_rcl_last_pub);
@@ -1020,18 +1167,31 @@ int main(void) {
     RUN_TEST(test_land_ready_is_read_only_once);
     RUN_TEST(test_land_getter_uses_the_mutex);
 
-    RUN_TEST(test_imu_msg_angular_velocity_in_rad_per_s);
-    RUN_TEST(test_imu_msg_linear_acceleration_in_m_per_s2);
-    RUN_TEST(test_imu_msg_stamp_from_microseconds);
-    RUN_TEST(test_imu_msg_nanosec_is_always_less_than_1_s);
-    RUN_TEST(test_imu_msg_timer_publishes_on_drone_imu_data);
-    RUN_TEST(test_imu_msg_timer_null_does_nothing);
+    RUN_TEST(test_state_msg_angular_velocity_in_rad_per_s);
+    RUN_TEST(test_state_msg_linear_acceleration_in_m_per_s2);
+#ifndef CONFIG_SIMULATION_ON
+    RUN_TEST(test_state_msg_stamp_from_microseconds);
+    RUN_TEST(test_state_msg_stamp_is_the_agent_time_when_synced);
+#else
+    RUN_TEST(test_state_msg_stamp_is_the_gazebo_time);
+#endif
+    RUN_TEST(test_state_msg_nanosec_is_always_less_than_1_s);
+    RUN_TEST(test_state_msg_position);
+    RUN_TEST(test_state_msg_orientation);
+    RUN_TEST(test_state_msg_initial_orientation_is_valid);
+    RUN_TEST(test_state_msg_linear_velocity_in_m_per_s);
+    RUN_TEST(test_state_msg_sm_state);
+    RUN_TEST(test_state_msg_sm_state_values_match_the_enum);
+    RUN_TEST(test_state_msg_timer_publishes_the_current_state);
+    RUN_TEST(test_state_msg_timer_publishes_on_drone_state);
+    RUN_TEST(test_state_msg_timer_null_does_nothing);
 
     RUN_TEST(test_task_uses_the_agent_from_menuconfig);
     RUN_TEST(test_task_creates_the_node_rui_drone);
     RUN_TEST(test_task_turns_on_the_esp_led_when_connected);
-    RUN_TEST(test_task_imu_publisher);
-    RUN_TEST(test_task_imu_message_is_prepared);
+    RUN_TEST(test_task_state_publisher);
+    RUN_TEST(test_task_no_imu_publisher);
+    RUN_TEST(test_task_state_message_is_prepared);
     RUN_TEST(test_task_params_subscriber);
     RUN_TEST(test_task_cmd_vel_subscriber);
     RUN_TEST(test_task_takeoff_service);
@@ -1044,6 +1204,11 @@ int main(void) {
     RUN_TEST(test_task_any_init_error_stops_the_task);
     RUN_TEST(test_task_no_agent_no_led);
 #ifndef CONFIG_SIMULATION_ON
+    RUN_TEST(test_task_syncs_the_time_with_the_agent);
+    RUN_TEST(test_task_without_agent_does_not_sync_the_time);
+    RUN_TEST(test_task_time_sync_error_does_not_stop_the_task);
+    RUN_TEST(test_task_resyncs_the_time_every_60_s);
+    RUN_TEST(test_task_does_not_resync_before_60_s);
     RUN_TEST(test_task_hardware_has_no_simulation_topics);
 #endif
 
@@ -1055,6 +1220,7 @@ int main(void) {
 
 #ifdef CONFIG_SIMULATION_ON
     RUN_TEST(test_sim_has_8_handles);
+    RUN_TEST(test_sim_task_does_not_sync_the_time);
     RUN_TEST(test_sim_imu_subscriber);
     RUN_TEST(test_sim_barometer_subscriber);
     RUN_TEST(test_sim_motors_publisher_is_best_effort);

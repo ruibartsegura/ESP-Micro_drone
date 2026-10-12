@@ -60,6 +60,11 @@ void estimate_odom() {
     vec3_t vel_ang = {0};
     get_vel_ang(&vel_ang);
 
+    // Quaternions use rad
+    vel_ang.x *= M_PI / 180;
+    vel_ang.y *= M_PI / 180;
+    vel_ang.z *= M_PI / 180;
+
     // Get quaternion
     quaternion_update(&q,
                       vel_ang.x, vel_ang.y, vel_ang.z,
@@ -75,7 +80,7 @@ void estimate_odom() {
 
     float acc_y_world = 2*(q.x*q.y + q.w*q.z)       * acc_lin.x
                       + (1 - 2*(q.x*q.x + q.z*q.z)) * acc_lin.y
-                      + 2*(q.y*q.z - q.w*q.x)       * acc_lin.z;  
+                      + 2*(q.y*q.z - q.w*q.x)       * acc_lin.z;
 
     // x & y without gravity
     float ax_w = acc_x_world * g;
@@ -102,8 +107,8 @@ void odom_task(void *arg) {
         if (++log_counter >= 500) {
             log_counter = 0;
             UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
-            // ESP_LOGI(TAG, "stack libre (min historico): %u bytes",
-                    //  (unsigned)(free_words * sizeof(StackType_t)));
+            ESP_LOGI(TAG, "stack libre (min historico): %u bytes",
+                     (unsigned)(free_words * sizeof(StackType_t)));
         }
 
         vTaskDelay(pdMS_TO_TICKS(ODOM_TASK_PERIOD_MS));
@@ -125,7 +130,12 @@ void init_odom_estimator(void) {
 
     quaternion_init(&q);
 
-    xTaskCreate(odom_task, "odom_task", CONFIG_ODOM_TASK_STACK, NULL, CONFIG_ODOM_TASK_PRIO, NULL);
+    xTaskCreate(odom_task,
+        "odom_task",
+        CONFIG_ODOM_TASK_STACK,
+        NULL,
+        CONFIG_ODOM_TASK_PRIO,
+        NULL);
 
     is_init = true;
 }
@@ -137,40 +147,3 @@ bool odom_estimator_test(void) {
 
     return true;
 }
-
-
-// std_msgs/Header header
-// 	builtin_interfaces/Time stamp
-// 		int32 sec
-// 		uint32 nanosec
-// 	string frame_id
-
-// # Frame id the pose points to. The twist is in this coordinate frame.
-// string child_frame_id
-
-// # Estimated pose that is typically relative to a fixed world frame.
-// geometry_msgs/PoseWithCovariance pose
-// 	Pose pose
-// 		Point position
-// 			float64 x
-// 			float64 y
-// 			float64 z
-// 		Quaternion orientation
-// 			float64 x 0
-// 			float64 y 0
-// 			float64 z 0
-// 			float64 w 1
-// 	float64[36] covariance
-
-// # Estimated linear and angular velocity relative to child_frame_id.
-// geometry_msgs/TwistWithCovariance twist
-// 	Twist twist
-// 		Vector3  linear
-// 			float64 x
-// 			float64 y
-// 			float64 z
-// 		Vector3  angular
-// 			float64 x
-// 			float64 y
-// 			float64 z
-// 	float64[36] covariance

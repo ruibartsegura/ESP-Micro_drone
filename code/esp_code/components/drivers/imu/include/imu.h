@@ -38,17 +38,6 @@
     #define ESP_INTR_FLAG_DEFAULT 0
 #endif
 
-typedef struct imu_data {
-    // Valores convertidos a unidades físicas
-    float Acc_lin_X;
-    float Acc_lin_Y;
-    float Acc_lin_Z;
-    float Vel_ang_X;
-    float Vel_ang_Y;
-    float Vel_ang_Z;
-    int64_t Time_stamp;
-} IMU;
-
 
 void imu_init(void);
 

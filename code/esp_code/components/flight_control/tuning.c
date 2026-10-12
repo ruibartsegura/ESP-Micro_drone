@@ -81,7 +81,7 @@ static void print_gains(void) {
 
 static void print_help(void) {
     ESP_LOGI(TAG, "Commands: help | get | reset | <gain> <value>");
-    ESP_LOGI(TAG, "Gains: kp_h kd_h kp_angle kp_rate max_rate max_pow base  (e.g. \"kp_rate 8\")");
+    ESP_LOGI(TAG, "Gains: kp_h kd_h kp_angle kp_rate max_rate max_pow base (e.g. \"kp_rate 8\")");
 }
 
 bool tuning_parse_line(const char *line) {
@@ -199,7 +199,13 @@ void init_tuning(void) {
     }
     get_gains(&default_gains);
 
-    xTaskCreate(tuning_task, "tuning_task", CONFIG_TUNING_TASK_STACK, NULL, CONFIG_TUNING_TASK_PRIO, NULL);
+    xTaskCreate(tuning_task,
+        "tuning_task",
+        CONFIG_TUNING_TASK_STACK,
+        NULL,
+        CONFIG_TUNING_TASK_PRIO,
+        NULL);
+
     is_init = true;
 }
 

@@ -71,7 +71,7 @@ bool led_test(void) {
         return false;
     }
 
-    // ESP_LOGI(TAG, "Empieza test");
+    ESP_LOGI(TAG, "Empieza test");
 
     int before[N_LEDS];
     for (int x = 0; x < N_LEDS; x++) {
@@ -89,7 +89,7 @@ bool led_test(void) {
         vTaskDelay(pdMS_TO_TICKS(250));
     }
 
-    // ESP_LOGI(TAG, "Termina test");
+    ESP_LOGI(TAG, "Termina test");
     all_off();
 
     // CHANGE 1: turn on again the LEDs that were on

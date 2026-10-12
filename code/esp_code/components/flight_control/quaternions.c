@@ -21,16 +21,14 @@
 
 #define BETA 0.08f
 
-static float inv_sqrt(float x)
-{
+static float inv_sqrt(float x) {
     if (x <= 0.0f) {
         return 0.0f; // evita div/0 o NaN si llega un vector nulo
     }
     return 1.0f / sqrtf(x);
 }
 
-static float wrap_angle(float angle)
-{
+static float wrap_angle(float angle) {
     if (angle > 180.0f) {
         return angle - 360.0f;
     } else if (angle < -180.0f) {
@@ -39,23 +37,21 @@ static float wrap_angle(float angle)
     return angle;
 }
 
-void quaternion_init(quat_t* q)
-{
+void quaternion_init(quat_t *q) {
     q->w = 1.0f;
     q->x = 0.0f;
     q->y = 0.0f;
     q->z = 0.0f;
 }
 
-void quaternion_update(quat_t* q, float gx, float gy, float gz,
-                        float ax, float ay, float az, float dt)
-{
+void quaternion_update(quat_t *q, float gx, float gy, float gz,
+                        float ax, float ay, float az, float dt) {
     float accel_norm_sq = ax * ax + ay * ay + az * az;
 
-    float qDot1 = 0.5f * (-q->x * gx - q->y * gy - q->z * gz);
-    float qDot2 = 0.5f * (q->w * gx + q->y * gz - q->z * gy);
-    float qDot3 = 0.5f * (q->w * gy - q->x * gz + q->z * gx);
-    float qDot4 = 0.5f * (q->w * gz + q->x * gy - q->y * gx);
+    float q_dot1 = 0.5f * (-q->x * gx - q->y * gy - q->z * gz);
+    float q_dot2 = 0.5f * (q->w * gx + q->y * gz - q->z * gy);
+    float q_dot3 = 0.5f * (q->w * gy - q->x * gz + q->z * gx);
+    float q_dot4 = 0.5f * (q->w * gz + q->x * gy - q->y * gx);
 
     // Solo aplicamos la corrección del acelerómetro si la lectura es
     // válida (evita 0/0 al normalizar).
@@ -93,16 +89,16 @@ void quaternion_update(quat_t* q, float gx, float gy, float gz,
         step3 *= step_inv_norm;
         step4 *= step_inv_norm;
 
-        qDot1 -= BETA * step1;
-        qDot2 -= BETA * step2;
-        qDot3 -= BETA * step3;
-        qDot4 -= BETA * step4;
+        q_dot1 -= BETA * step1;
+        q_dot2 -= BETA * step2;
+        q_dot3 -= BETA * step3;
+        q_dot4 -= BETA * step4;
     }
 
-    q->w += qDot1 * dt;
-    q->x += qDot2 * dt;
-    q->y += qDot3 * dt;
-    q->z += qDot4 * dt;
+    q->w += q_dot1 * dt;
+    q->x += q_dot2 * dt;
+    q->y += q_dot3 * dt;
+    q->z += q_dot4 * dt;
 
     float q_norm_sq = q->w * q->w + q->x * q->x + q->y * q->y + q->z * q->z;
     float q_inv_norm = inv_sqrt(q_norm_sq);
@@ -112,15 +108,13 @@ void quaternion_update(quat_t* q, float gx, float gy, float gz,
     q->z *= q_inv_norm;
 }
 
-float quaternion_get_roll(const quat_t* q)
-{
+float quaternion_get_roll(const quat_t *q) {
     float roll = atan2f(2.0f * (q->w * q->x + q->y * q->z),
-                         1.0f - 2.0f * (q->x * q->x + q->y * q->y)) * 180.0f / (float)M_PI;
+                        1.0f - 2.0f * (q->x * q->x + q->y * q->y)) * 180.0f / (float)M_PI;
     return wrap_angle(roll);
 }
 
-float quaternion_get_pitch(const quat_t* q)
-{
+float quaternion_get_pitch(const quat_t *q) {
     float sinp = 2.0f * (q->w * q->y - q->z * q->x);
 
     if (fabsf(sinp) >= 1.0f) {
@@ -131,9 +125,8 @@ float quaternion_get_pitch(const quat_t* q)
     return wrap_angle(pitch_deg);
 }
 
-float quaternion_get_yaw(const quat_t* q)
-{
-    float yaw = atan2f(2.0f * (q->w * q->z + q->x * q->y),
-                        1.0f - 2.0f * (q->y * q->y + q->z * q->z)) * 180.0f / (float)M_PI;
+float quaternion_get_yaw(const quat_t *q) {
+    float yaw = atan2f(2.0 * (q->w * q->z + q->x * q->y),
+                       1.0 - 2.0 * (q->y * q->y + q->z * q->z)) * 180.0f / (float)M_PI;
     return wrap_angle(yaw);
 }

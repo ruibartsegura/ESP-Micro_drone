@@ -58,6 +58,29 @@ typedef struct { float h_max; float v_max; bool land_on_site; } my_msgs__msg__Pa
 typedef struct { float altitude; } my_msgs__srv__Takeoff_Request;
 typedef struct { bool accepted; rosidl_runtime_c__String reason; } my_msgs__srv__Takeoff_Response;
 
+/* Same constants as the generated code (anonymous enum, like rosidl) */
+enum {
+    my_msgs__msg__State__INIT = 0,
+    my_msgs__msg__State__CHECKING = 1,
+    my_msgs__msg__State__ARMING = 2,
+    my_msgs__msg__State__TAKING_OFF = 3,
+    my_msgs__msg__State__HOVERING = 4,
+    my_msgs__msg__State__EXTERNAL_CONTROL = 5,
+    my_msgs__msg__State__LANDING = 6,
+    my_msgs__msg__State__DISARMING = 7,
+    my_msgs__msg__State__ERROR = 8
+};
+typedef struct {
+    std_msgs__msg__Header          header;
+    geometry_msgs__msg__Point      pos;
+    geometry_msgs__msg__Quaternion q;
+    geometry_msgs__msg__Vector3    vel_lin;
+    geometry_msgs__msg__Vector3    vel_ang;
+    geometry_msgs__msg__Vector3    acc_lin;
+    uint8_t                        sm_state;
+} my_msgs__msg__State;
+bool my_msgs__msg__State__init(my_msgs__msg__State *msg);
+
 /* ---- std_srvs ---- */
 typedef struct { uint8_t structure_needs_at_least_one_member; } std_srvs__srv__Trigger_Request;
 typedef struct { bool success; rosidl_runtime_c__String message; } std_srvs__srv__Trigger_Response;

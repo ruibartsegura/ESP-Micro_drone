@@ -67,8 +67,13 @@ void test_init_resets_every_field(void) {
     TEST_ASSERT_EQUAL_FLOAT(0.0f, s.vel_lin.x);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, s.vel_ang.y);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, s.acc_lin.z);
-    TEST_ASSERT_EQUAL_INT64(0, s.t_stamp_imu);
-    TEST_ASSERT_EQUAL_INT64(0, s.t_stamp_h);
+    TEST_ASSERT_EQUAL_INT(INIT, s.sm_state);
+    /* The times are not in state_t, but state_init() also resets them */
+    int64_t t_imu, t_h;
+    get_time_imu(&t_imu);
+    get_time_height(&t_h);
+    TEST_ASSERT_EQUAL_INT64(0, t_imu);
+    TEST_ASSERT_EQUAL_INT64(0, t_h);
 }
 
 void test_init_orientation_is_the_identity_quaternion(void) {
@@ -223,8 +228,7 @@ void test_set_get_global_state_copies_every_field(void) {
     TEST_ASSERT_FLOAT_WITHIN(EPS, 6.0f, s.vel_lin.z);
     TEST_ASSERT_FLOAT_WITHIN(EPS, 9.0f, s.vel_ang.z);
     TEST_ASSERT_FLOAT_WITHIN(EPS, 12.0f, s.acc_lin.z);
-    TEST_ASSERT_EQUAL_INT64(123456789LL, s.t_stamp_imu);
-    TEST_ASSERT_EQUAL_INT64(987654321LL, s.t_stamp_h);
+    TEST_ASSERT_EQUAL_INT(HOVERING, s.sm_state);
 }
 
 void test_set_get_global_state_is_a_copy(void) {

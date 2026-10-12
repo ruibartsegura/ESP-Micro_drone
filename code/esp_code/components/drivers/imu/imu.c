@@ -89,8 +89,7 @@ esp_err_t imu_check_stable_for_arming(imu_arm_state_t *state) {
 }
 
 
-static void imu_sample_and_filter(void)
-{
+static void imu_sample_and_filter(void) {
     #ifndef CONFIG_SIMULATION_ON
         esp_err_t ret;
         int16_t accel_x, accel_y, accel_z;
@@ -131,8 +130,8 @@ static void imu_task(void *arg) {
         if (++log_counter >= 500) {
             log_counter = 0;
             UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
-            // // ESP_LOGI("imu_task", "stack libre (min historico): %u bytes",
-            //          (unsigned)(free_words * sizeof(StackType_t)));
+            ESP_LOGI("imu_task", "stack libre (min historico): %u bytes",
+                     (unsigned)(free_words * sizeof(StackType_t)));
         }
 
         vTaskDelay(pdMS_TO_TICKS(IMU_TASK_PERIOD_MS));
@@ -186,12 +185,16 @@ void imu_init(void) {
 
 
     // Task to read the IMU
-    xTaskCreate(imu_task, "imu_task", CONFIG_IMU_TASK_STACK, NULL, CONFIG_IMU_TASK_PRIO, NULL);
+    xTaskCreate(imu_task,
+        "imu_task",
+        CONFIG_IMU_TASK_STACK,
+        NULL,
+        CONFIG_IMU_TASK_PRIO,
+        NULL);
 
     is_init = true;
 }
 
-bool imu_test(void)
-{
+bool imu_test(void) {
     return is_init;
 }

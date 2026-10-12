@@ -25,16 +25,6 @@ typedef struct {
     float x, y, z, w;
 } quat_t;
 
-typedef struct {
-    vec3_t pos;      // Position (m)
-    quat_t q;        // Orientation
-    vec3_t vel_lin;  // Vel lineal (m/s)
-    vec3_t vel_ang;  // Vel angular (°/s)
-    vec3_t acc_lin;  // Acc lineal (g)
-    int64_t t_stamp_imu; // Time (ns)
-    int64_t t_stamp_h; // Time (ns)
-} state_t;
-
 // States for the state machine(sm)
 typedef enum {
     INIT               = 0,
@@ -47,6 +37,16 @@ typedef enum {
     DISARMING          = 7,
     ERROR              = 8
 } sm_states_t;
+
+typedef struct {
+    vec3_t pos;      // Position (m)
+    quat_t q;        // Orientation
+    vec3_t vel_lin;  // Vel lineal (m/s)
+    vec3_t vel_ang;  // Vel angular (°/s)
+    vec3_t acc_lin;  // Acc lineal (g)
+    sm_states_t sm_state;
+} state_t;
+
 
 void state_init(void);
 

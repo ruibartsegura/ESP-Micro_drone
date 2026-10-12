@@ -24,13 +24,17 @@
 #include "state.h"
 
 static state_t state;
-static sm_states_t sm_state;
+static volatile int64_t t_stamp_imu; // Time (ns)
+static volatile int64_t t_stamp_h; // Time (ns)
+
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
+
 
 // Setters
 void state_init(void) {
     portENTER_CRITICAL(&s_lock);
-    memset(&sm_state, 0, sizeof(sm_state));
+    t_stamp_imu = 0;
+    t_stamp_h = 0;
 
     memset(&state, 0, sizeof(state));
     state.q.w = 1.0f;
@@ -76,19 +80,19 @@ void set_acc_lin(float ax, float ay, float az) {
 
 void set_time_imu(int64_t t) {
     portENTER_CRITICAL(&s_lock);
-    state.t_stamp_imu = t;
+    t_stamp_imu = t;
     portEXIT_CRITICAL(&s_lock);
 }
 
 void set_time_height(int64_t t) {
     portENTER_CRITICAL(&s_lock);
-    state.t_stamp_h = t;
+    t_stamp_h = t;
     portEXIT_CRITICAL(&s_lock);
 }
 
 void set_sm_state(sm_states_t sm) {
     portENTER_CRITICAL(&s_lock);
-    sm_state = sm;
+    state.sm_state = sm;
     portEXIT_CRITICAL(&s_lock);
 }
 
@@ -125,19 +129,19 @@ void get_acc_lin(vec3_t *out) {
 
 void get_time_imu(int64_t *out) {
     portENTER_CRITICAL(&s_lock);
-    *out = state.t_stamp_imu;
+    *out = t_stamp_imu;
     portEXIT_CRITICAL(&s_lock);
 }
 
 void get_time_height(int64_t *out) {
     portENTER_CRITICAL(&s_lock);
-    *out = state.t_stamp_h;
+    *out = t_stamp_h;
     portEXIT_CRITICAL(&s_lock);
 }
 
 void get_sm_state(sm_states_t *out) {
     portENTER_CRITICAL(&s_lock);
-    *out = sm_state;
+    *out = state.sm_state;
     portEXIT_CRITICAL(&s_lock);
 }
 

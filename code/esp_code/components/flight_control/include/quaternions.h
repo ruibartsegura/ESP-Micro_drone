@@ -20,7 +20,7 @@
 #include <math.h>
 #include <state.h>
 
-void quaternion_init(quat_t* q);
+void quaternion_init(quat_t *q);
 
 /**
  * @brief Filtro Madgwick.
@@ -29,11 +29,11 @@ void quaternion_init(quat_t* q);
  *                  típicamente en g o m/s².
  * @param dt        Delta de tiempo real en segundos desde la última llamada.
  */
-void quaternion_update(quat_t* q, float gx, float gy, float gz,
+void quaternion_update(quat_t *q, float gx, float gy, float gz,
                         float ax, float ay, float az, float dt);
 
-float quaternion_get_roll(const quat_t* q);
-float quaternion_get_pitch(const quat_t* q);
-float quaternion_get_yaw(const quat_t* q);
+float quaternion_get_roll(const quat_t *q);
+float quaternion_get_pitch(const quat_t *q);
+float quaternion_get_yaw(const quat_t *q);
 
 #endif // QUATERNIONS_H

@@ -24,10 +24,10 @@
 
 
 // PIN configuration
-#define motor_1 CONFIG_MOTOR01_PIN
-#define motor_2 CONFIG_MOTOR02_PIN
-#define motor_3 CONFIG_MOTOR03_PIN
-#define motor_4 CONFIG_MOTOR04_PIN
+#define MOTOR_1 CONFIG_MOTOR01_PIN
+#define MOTOR_2 CONFIG_MOTOR02_PIN
+#define MOTOR_3 CONFIG_MOTOR03_PIN
+#define MOTOR_4 CONFIG_MOTOR04_PIN
 
 // LEDC configuration
 #define LEDC_TIMER      LEDC_TIMER_0
