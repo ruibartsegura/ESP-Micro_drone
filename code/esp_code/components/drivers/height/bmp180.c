@@ -82,12 +82,12 @@ esp_err_t bmp180_init(bmp180_t *dev, i2c_port_t i2c_port, bmp180_mode_t mode) {
     uint8_t chip_id = 0;
     esp_err_t err = bmp180_read_regs(dev, BMP180_REG_CHIP_ID, &chip_id, 1);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Fallo leyendo chip id: %s", esp_err_to_name(err));
+        // ESP_LOGE(TAG, "Fallo leyendo chip id: %s", esp_err_to_name(err));
         return err;
     }
     if (chip_id != BMP180_CHIP_ID_VALUE) {
-        ESP_LOGE(TAG, "Chip id inesperado: 0x%02X (se esperaba 0x%02X)",
-                 chip_id, BMP180_CHIP_ID_VALUE);
+        // ESP_LOGE(TAG, "Chip id inesperado: 0x%02X (se esperaba 0x%02X)",
+                 // chip_id, BMP180_CHIP_ID_VALUE);
         return ESP_ERR_NOT_FOUND;
     }
 
@@ -95,14 +95,14 @@ esp_err_t bmp180_init(bmp180_t *dev, i2c_port_t i2c_port, bmp180_mode_t mode) {
     uint8_t cal[22];
     err = bmp180_read_regs(dev, BMP180_REG_CAL_START, cal, sizeof(cal));
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Fallo leyendo calibracion: %s", esp_err_to_name(err));
+        // ESP_LOGE(TAG, "Fallo leyendo calibracion: %s", esp_err_to_name(err));
         return err;
     }
 
     for (int i = 0; i < 11; i++) {
         uint16_t word = (uint16_t)((cal[2 * i] << 8) | cal[2 * i + 1]);
         if (word == 0x0000 || word == 0xFFFF) {
-            ESP_LOGE(TAG, "Calibracion invalida (palabra %d = 0x%04X)", i, word);
+            // ESP_LOGE(TAG, "Calibracion invalida (palabra %d = 0x%04X)", i, word);
             return ESP_ERR_INVALID_RESPONSE;
         }
     }
@@ -119,7 +119,7 @@ esp_err_t bmp180_init(bmp180_t *dev, i2c_port_t i2c_port, bmp180_mode_t mode) {
     dev->MC  = be16(&cal[18]);
     dev->MD  = be16(&cal[20]);
 
-    ESP_LOGI(TAG, "BMP180 inicializado correctamente (chip id 0x%02X)", chip_id);
+    // ESP_LOGI(TAG, "BMP180 inicializado correctamente (chip id 0x%02X)", chip_id);
     return ESP_OK;
 }
 

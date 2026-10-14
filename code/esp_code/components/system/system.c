@@ -17,6 +17,7 @@
  *   - change_state(): changes the state machine state and saves it in the global state.
  *   - get_attitude(): returns the target attitude (cmd_vel + height).
  *   - check_takeOff_2_hov(): checks if the take-off height has been reached.
+ *   - blink(): blinks a LED without stopping the state machine.
  *   - state_machine(): runs one step of the state machine.
  *   - system_task(): FreeRTOS task that calls state_machine() periodically.
  *   - system_start(): creates the system task.
@@ -33,9 +34,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
 // Global_data
 #include "state.h"
+#include "cpu_stats.h"
 
 // Drivers
 #include "led.h"
@@ -74,6 +77,7 @@ void system_init(void) {
     }
 
     state_init();
+    init_cpu_stats(); // CPU / period log (only with CONFIG_CPU_STATS_ON)
     vTaskDelay(pdMS_TO_TICKS(500));
 
     led_init();
@@ -120,7 +124,7 @@ bool system_test(void) {
 
     test &= ros_test();
 
-    ESP_LOGI(TAG, "Fin test result %d", test);
+    // ESP_LOGI(TAG, "Fin test result %d", test);
     return test;
 }
 
@@ -139,6 +143,26 @@ ATTITUDE_TARGET get_attitude() {
 
 // Aux var
 static bool blink_led = true;
+
+// The LEDs blink by time: a vTaskDelay() here would stop the state machine
+// (before it went at ~6 Hz while taking off, landing or in external control)
+#define BLINK_PERIOD_MS 150
+static int64_t t_blink_us = -1; // Time of the last change of the LED (-1 = never)
+
+static void blink(led_t led) {
+    int64_t now = esp_timer_get_time();
+    if (t_blink_us >= 0 && now - t_blink_us < BLINK_PERIOD_MS * 1000LL) {
+        return;
+    }
+    t_blink_us = now;
+
+    if (blink_led) {
+        led_on(led);
+    } else {
+        led_off(led);
+    }
+    blink_led = !blink_led;
+}
 
 void state_machine(void) {
     geometry_msgs__msg__Twist v; // For cmd_vel
@@ -168,9 +192,6 @@ void state_machine(void) {
                 reset_h_reached();
 
                 change_state(TAKING_OFF);
-            } else {
-                // Check if take_off service has arrive each 150ms
-                vTaskDelay(pdMS_TO_TICKS(150));
             }
             break;
 
@@ -185,15 +206,7 @@ void state_machine(void) {
 
                 change_state(HOVERING);
             } else {
-                if (blink_led) {
-                    led_on(LED_BLUE);
-                    blink_led = false;
-                    vTaskDelay(pdMS_TO_TICKS(150));
-                } else {
-                    led_off(LED_BLUE);
-                    blink_led = true;
-                    vTaskDelay(pdMS_TO_TICKS(150));
-                }
+                blink(LED_BLUE);
             }
             break;
 
@@ -235,15 +248,7 @@ void state_machine(void) {
 
                 change_state(LANDING);
             } else {
-                if (blink_led) {
-                    led_on(LED_GREEN);
-                    blink_led = false;
-                    vTaskDelay(pdMS_TO_TICKS(150));
-                } else {
-                    led_off(LED_GREEN);
-                    blink_led = true;
-                    vTaskDelay(pdMS_TO_TICKS(150));
-                }
+                blink(LED_GREEN);
             }
             break;
 
@@ -260,15 +265,7 @@ void state_machine(void) {
 
                 change_state(DISARMING);
             } else {
-                if (blink_led) {
-                    led_on(LED_RED);
-                    blink_led = false;
-                    vTaskDelay(pdMS_TO_TICKS(150));
-                } else {
-                    led_off(LED_RED);
-                    blink_led = true;
-                    vTaskDelay(pdMS_TO_TICKS(150));
-                }
+                blink(LED_RED);
             }
             break;
 
@@ -293,19 +290,27 @@ void state_machine(void) {
 
 static void system_task(void *arg) {
     (void)arg;
-    int log_counter = 0;
+    // int log_counter = 0;
+
+    static task_period_t period = TASK_PERIOD("system_task", SYSTEM_TASK_PERIOD_MS);
+    TickType_t t_wake = xTaskGetTickCount();
 
     while (1) {
+        task_period_tick(&period); // CPU / period log (CONFIG_CPU_STATS_ON)
         state_machine();
 
-        if (++log_counter >= 250) {
-            log_counter = 0;
-            UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
-            ESP_LOGI("system_task", "stack libre (min historico): %u bytes",
-                     (unsigned)(free_words * sizeof(StackType_t)));
-        }
+        // if (++log_counter >= 250) {
+            // log_counter = 0;
+            // UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
+            // ESP_LOGI("system_task", "stack libre (min historico): %u bytes",
+                     // (unsigned)(free_words * sizeof(StackType_t)));
+        // }
 
-        vTaskDelay(pdMS_TO_TICKS(SYSTEM_TASK_PERIOD_MS));
+        // Fixed period (vTaskDelay would add the time of the work). If the
+        // task was late, count again from now instead of running to catch up
+        if (xTaskDelayUntil(&t_wake, pdMS_TO_TICKS(SYSTEM_TASK_PERIOD_MS)) == pdFALSE) {
+            t_wake = xTaskGetTickCount();
+        }
     }
 }
 

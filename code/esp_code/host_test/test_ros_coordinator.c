@@ -935,13 +935,13 @@ void test_sim_motors_publisher_session_timeout_is_50_ms(void) {
     TEST_ASSERT_EQUAL_INT(50, mock_uros_pub_timeout_ms);
 }
 
-void test_sim_motors_timer_is_30_ms(void) {
+void test_sim_motors_timer_is_15_ms(void) {
     run_ros_task();
     bool found = false;
     for (int i = 0; i < mock_ros_entity_count; i++)
         if (mock_ros_entities[i].kind == MOCK_ROS_TIMER && mock_ros_entities[i].timer_cb == motors_timer_callback) {
             found = true;
-            TEST_ASSERT_EQUAL_INT64(RCL_MS_TO_NS(30), mock_ros_entities[i].period_ns);
+            TEST_ASSERT_EQUAL_INT64(RCL_MS_TO_NS(15), mock_ros_entities[i].period_ns);
         }
     TEST_ASSERT_TRUE(found);
 }
@@ -1225,7 +1225,7 @@ int main(void) {
     RUN_TEST(test_sim_barometer_subscriber);
     RUN_TEST(test_sim_motors_publisher_is_best_effort);
     RUN_TEST(test_sim_motors_publisher_session_timeout_is_50_ms);
-    RUN_TEST(test_sim_motors_timer_is_30_ms);
+    RUN_TEST(test_sim_motors_timer_is_15_ms);
     RUN_TEST(test_sim_imu_callback_saves_the_message);
     RUN_TEST(test_sim_imu_callback_angular_velocity_in_deg_per_s);
     RUN_TEST(test_sim_imu_callback_acceleration_in_g);

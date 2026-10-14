@@ -7,8 +7,8 @@
  *   Unit tests for odometry_estimator.c (host, no hardware). They check the
  *   init, the task and estimate_odom(): orientation with the Madgwick filter
  *   (quaternions.c), horizontal velocity integrating the acceleration in
- *   world axes, vertical velocity from the attitude controller (get_vel_z())
- *   and the position.
+ *   world axes (leaky integration, V_LEAK_TAU), vertical velocity from the
+ *   attitude controller (get_vel_z()) and the position.
  *
  *   The real state.c and quaternions.c are linked. get_vel_z()
  *   (attitude_controller.c) is mocked.
@@ -260,14 +260,35 @@ void test_odom_zero_dt_does_not_integrate(void) {
     TEST_ASSERT_EQUAL_FLOAT(0.0f, vel_y);
 }
 
-/* [BUG] The position is x = vel_x * dt (the distance of one cycle), not
- * x += vel_x * dt: it never accumulates. At 1 m/s for 1 s it gives 1 cm. */
+/* The position accumulates the velocity. Still, the velocity forgets
+ * with V_LEAK_TAU: 1 m/s during 1 s moves tau * (1 - e^(-1 / tau)) m. */
 void test_odom_constant_velocity_moves_the_position(void) {
     vel_x = 1.0f;
     for (int i = 0; i < 100; i++) odom_step();   /* 100 x 10 ms = 1 s */
     vec3_t p;
     get_position(&p);
-    TEST_ASSERT_FLOAT_WITHIN(0.05f, 1.0f, p.x);
+    float expected = V_LEAK_TAU * (1.0f - expf(-1.0f / V_LEAK_TAU));
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, expected, p.x);
+}
+
+/* Without acceleration the velocity goes back to 0: after V_LEAK_TAU it
+ * keeps 1 / e (37 %). */
+void test_odom_velocity_forgets_with_v_leak_tau(void) {
+    vel_x = 1.0f;
+    vel_y = -1.0f;
+    int n = (int)(V_LEAK_TAU / (DT_NS / 1e9f));
+    for (int i = 0; i < n; i++) odom_step();
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, expf(-1.0f), vel_x);
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, -expf(-1.0f), vel_y);
+}
+
+/* A bias of the accelerometer does not grow without limit: the velocity
+ * stays under bias * V_LEAK_TAU (the Madgwick filter also takes part of
+ * the bias as tilt, so it can be less). */
+void test_odom_accel_bias_gives_a_limited_velocity(void) {
+    set_acc_lin(0.002f, 0, 1.0f);   /* 0.002 g = 0.02 m/s^2 of bias */
+    for (int i = 0; i < 2000; i++) odom_step();   /* 20 s = 8 tau */
+    TEST_ASSERT_TRUE(fabsf(vel_x) <= 0.002f * K_G * V_LEAK_TAU * 1.05f);
 }
 
 /* [BUG] quaternion_update() needs the gyroscope in rad/s, but the state
@@ -303,6 +324,8 @@ int main(void) {
     RUN_TEST(test_odom_first_sample_long_dt_is_ignored);
     RUN_TEST(test_odom_zero_dt_does_not_integrate);
     RUN_TEST(test_odom_constant_velocity_moves_the_position);
+    RUN_TEST(test_odom_velocity_forgets_with_v_leak_tau);
+    RUN_TEST(test_odom_accel_bias_gives_a_limited_velocity);
     RUN_TEST(test_odom_gyro_is_converted_to_rad_s);
 
     return UNITY_END();

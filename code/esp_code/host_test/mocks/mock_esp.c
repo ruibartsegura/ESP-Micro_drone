@@ -123,6 +123,21 @@ void vTaskDelay(TickType_t ticks) {
     }
 }
 
+TickType_t xTaskGetTickCount(void) {
+    return (TickType_t)mock_delay_total_ms;
+}
+
+BaseType_t xTaskDelayUntil(TickType_t *prev, TickType_t inc) {
+    TickType_t wake = *prev + inc;
+    TickType_t now = xTaskGetTickCount();
+    *prev = wake;
+    if ((int32_t)(wake - now) <= 0) {
+        return pdFALSE;   /* late: no wait */
+    }
+    vTaskDelay(wake - now);
+    return pdTRUE;
+}
+
 void vTaskDelete(TaskHandle_t handle) {
     mock_task_delete_calls++;
     /* vTaskDelete(NULL) never returns in FreeRTOS: leave the task. */

@@ -37,22 +37,25 @@
 
 /* ---- Tasks (stack / priority) ---- */
 #define CONFIG_SYSTEM_TASK_STACK   4000
-#define CONFIG_SYSTEM_TASK_PRIO    5
+#define CONFIG_SYSTEM_TASK_PRIO    4
 #define CONFIG_IMU_TASK_STACK      3200
-#define CONFIG_IMU_TASK_PRIO       6
+#define CONFIG_IMU_TASK_PRIO       7
 #define CONFIG_HEIGHT_TASK_STACK   3200
 #define CONFIG_HEIGHT_TASK_PRIO    5
 #define CONFIG_ODOM_TASK_STACK     3200
-#define CONFIG_ODOM_TASK_PRIO      3
+#define CONFIG_ODOM_TASK_PRIO      5
 #define CONFIG_ATTITUDE_TASK_STACK 4900
-#define CONFIG_ATTITUDE_TASK_PRIO  5
+#define CONFIG_ATTITUDE_TASK_PRIO  6
 #define CONFIG_TUNING_TASK_STACK   3072
 #define CONFIG_TUNING_TASK_PRIO    1
-#define CONFIG_MICRO_ROS_STACK     19200
-#define CONFIG_MICRO_ROS_TASK_PRIO 6
+#define CONFIG_MICRO_ROS_STACK     8000
+#define CONFIG_MICRO_ROS_TASK_PRIO 3
 
 /* ---- Tuning (gains from the serial console) ---- */
 #define CONFIG_GAINS_TUNE_ON 1
+/* CONFIG_CPU_STATS_ON is on in the real sdkconfig, but not here: the other
+ * modules get the empty task_period_tick() of cpu_stats.h. The cpu_stats
+ * suite turns it on with -D (see the Makefile). */
 
 /* ---- micro-ROS ---- */
 #define CONFIG_MICRO_ROS_ESP_XRCE_DDS_MIDDLEWARE 1

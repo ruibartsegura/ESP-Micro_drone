@@ -9,13 +9,18 @@
  *   (get_imu_data(), set_motor_speed(id, speed)). They cover:
  *     1. Complementary filter.
  *     2. Attitude estimation: get_roll_pitch() (gyro + accelerometer).
- *     3. Outer loop: cmd_vel_2_RP() (velocity -> target roll / pitch).
+ *     3. Outer loop: cmd_vel_2_RP() (velocity loop: velocity error ->
+ *        target roll / pitch, ENU: +pitch to +x, +roll to -y).
  *     4. Inner loop: angular rate -> motor mix (roll / pitch / yaw).
  *     5. Height: collective thrust, check_h_reached() and reset_h_reached().
  *     6. Height estimation: get_h() (accelerometer + barometer) and
  *        get_vel_z().
  *     7. Gains: get_gains() / set_gains().
  *     8. Task and init.
+ *     9. Integral of the roll / pitch rate and gain of the yaw.
+ *
+ *   setUp() leaves the state machine in INIT (not flying), so the integral
+ *   is 0 and sections 4-7 check the P part alone. Section 9 flies.
  *
  *   The real state.c is linked (the controller reads the IMU and the
  *   height from the global state). get_attitude() (system.c) and
@@ -45,7 +50,7 @@
  *     and the barometer and run the controller.
  *   - setUp() / tearDown(): reset the mocks, the controller and the state.
  *   - test_comp_*, test_est_*, test_ext_*, test_int_*, test_h_*, test_hest_*,
- *     test_gains_*, test_task_*.
+ *     test_gains_*, test_task_*, test_i_*.
  *   - main(): runs all the tests.
  */
 #include "unity.h"
@@ -163,6 +168,9 @@ void setUp(void) {
     last_rpy.t_stamp = t_now;
     set_time_imu(t_now);
     set_tilt(0, 0);         /* level, +1 g on Z */
+    i_roll = 0.0f;
+    i_pitch = 0.0f;
+    last_t_ctrl = t_now;
 }
 
 void tearDown(void) {}
@@ -179,11 +187,44 @@ void test_comp_alpha_0_returns_the_second(void) {
 }
 
 void test_comp_blend_value(void) {
-    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.98f * 10.0f + 0.02f * 20.0f, complementary_filter(10.0f, 20.0f, ALPHA));
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.98f * 10.0f + 0.02f * 20.0f,
+                             complementary_filter(10.0f, 20.0f, 0.98f));
 }
 
 void test_comp_alpha_trusts_the_gyro(void) {
-    TEST_ASSERT_TRUE(ALPHA > 0.9 && ALPHA < 1.0);
+    float a = alpha_of(ATTITUDE_TASK_PERIOD_MS / 1000.0f);
+    TEST_ASSERT_TRUE(a > 0.9f && a < 1.0f);
+}
+
+/* TAU_RP keeps the old filter: ALPHA = 0.98 at 15 ms. */
+void test_comp_alpha_at_15_ms_is_the_old_0_98(void) {
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.98f, alpha_of(0.015f));
+}
+
+/* dt = 0 is the same IMU sample again: nothing new, no correction. */
+void test_comp_alpha_of_0_is_1(void) {
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, alpha_of(0.0f));
+}
+
+/* With alpha_of(dt) the accelerometer corrects at the same speed at any
+ * frequency: 0.5 s at 200 Hz and at 66 Hz give (almost) the same angle. */
+void test_comp_correction_does_not_depend_on_the_frequency(void) {
+    float r_fast = 0, r_slow = 0, p;
+    set_tilt(20.0f, 0.0f);
+    for (int i = 0; i < 100; i++) {          /* 100 x 5 ms */
+        t_now += 5000000LL;
+        set_time_imu(t_now);
+        get_roll_pitch(&r_fast, &p);
+    }
+    memset(&last_rpy, 0, sizeof last_rpy);
+    last_rpy.t_stamp = t_now;
+    for (int i = 0; i < 33; i++) {           /* 33 x 15 ms */
+        t_now += 15000000LL;
+        set_time_imu(t_now);
+        get_roll_pitch(&r_slow, &p);
+    }
+    TEST_ASSERT_FLOAT_WITHIN(0.3f, r_slow, r_fast);
+    TEST_ASSERT_FLOAT_WITHIN(1.0f, 20.0f * (1.0f - expf(-0.5f / TAU_RP)), r_fast);
 }
 
 /* ------------------------------------------------------------------ */
@@ -218,7 +259,7 @@ void test_est_one_step_of_the_accel_is_2_percent(void) {
     set_tilt(10.0f, 0.0f);
     t_now += DT_NS; set_time_imu(t_now);
     get_roll_pitch(&r, &p);
-    TEST_ASSERT_FLOAT_WITHIN(1e-3f, (1.0f - ALPHA) * 10.0f, r);
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, (1.0f - alpha_of(DT_NS / 1e9f)) * 10.0f, r);
 }
 
 void test_est_gyro_is_integrated_with_the_timestamps(void) {
@@ -227,8 +268,8 @@ void test_est_gyro_is_integrated_with_the_timestamps(void) {
     t_now += 10000000LL;                /* 10 ms */
     set_time_imu(t_now);
     get_roll_pitch(&r, &p);
-    TEST_ASSERT_FLOAT_WITHIN(1e-4f, ALPHA * 0.1f, r);
-    TEST_ASSERT_FLOAT_WITHIN(1e-4f, ALPHA * -0.2f, p);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, alpha_of(0.01f) * 0.1f, r);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, alpha_of(0.01f) * -0.2f, p);
 }
 
 void test_est_gyro_1_s_at_30_dps_is_about_30_deg(void) {
@@ -334,10 +375,11 @@ void test_ext_forward_velocity_gives_positive_pitch_only(void) {
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, r);
 }
 
-void test_ext_lateral_velocity_gives_positive_roll_only(void) {
+/* ENU: y is the left, and a positive roll pushes to -y. */
+void test_ext_lateral_velocity_gives_negative_roll_only(void) {
     float r, p;
     cmd_vel_2_RP(&r, &p, vel(0, 1.5));
-    TEST_ASSERT_TRUE(r > 0.0f);
+    TEST_ASSERT_TRUE(r < 0.0f);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, p);
 }
 
@@ -349,12 +391,10 @@ void test_ext_backward_velocity_gives_negative_pitch(void) {
     TEST_ASSERT_TRUE_MESSAGE(p < 0.0f, "backwards must tilt the other way");
 }
 
-/* [BUG] Roll and pitch swapped (see above): moving left (vy < 0) changes
- * the pitch, not the roll. */
-void test_ext_left_velocity_gives_negative_roll(void) {
+void test_ext_right_velocity_gives_positive_roll(void) {
     float r, p;
     cmd_vel_2_RP(&r, &p, vel(0, -1.5));
-    TEST_ASSERT_TRUE_MESSAGE(r < 0.0f, "left must tilt the other way");
+    TEST_ASSERT_TRUE_MESSAGE(r > 0.0f, "right must tilt the other way");
 }
 
 /* The output must be odd: f(-v) = -f(v). */
@@ -382,14 +422,69 @@ void test_ext_grows_with_the_speed(void) {
 void test_ext_diagonal_gives_equal_roll_and_pitch(void) {
     float r, p;
     cmd_vel_2_RP(&r, &p, vel(1.0, 1.0));
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, r, p);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, -r, p);
 }
 
 void test_ext_is_limited_to_max_angle(void) {
     float r, p;
     cmd_vel_2_RP(&r, &p, vel(50.0, 50.0));
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, MAX_ANGLE, r);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, -MAX_ANGLE, r);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, MAX_ANGLE, p);
+}
+
+/* Velocity loop: the angle is KP_VEL x (command - measured velocity). */
+void test_ext_command_gives_kp_vel_per_m_s(void) {
+    float r, p;
+    cmd_vel_2_RP(&r, &p, vel(1.0, 0));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, KP_VEL, p);
+}
+
+/* Hover (cmd_vel = 0) with a drift forwards: it tilts backwards to brake. */
+void test_ext_hover_brakes_a_forward_drift(void) {
+    set_vel_lin(0.5f, 0, 0);
+    float r, p;
+    cmd_vel_2_RP(&r, &p, vel(0, 0));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, -KP_VEL * 0.5f, p);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, r);
+}
+
+/* Hover with a drift to the left (+y): positive roll pushes it to -y. */
+void test_ext_hover_brakes_a_left_drift(void) {
+    set_vel_lin(0, 0.5f, 0);
+    float r, p;
+    cmd_vel_2_RP(&r, &p, vel(0, 0));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, KP_VEL * 0.5f, r);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, p);
+}
+
+/* Without drift the drone stays level. */
+void test_ext_at_the_commanded_velocity_it_is_level(void) {
+    set_vel_lin(0.3f, -0.2f, 0);
+    float r, p;
+    cmd_vel_2_RP(&r, &p, vel(0.3, -0.2));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, r);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, p);
+}
+
+/* The velocity of the odometry is in world axes and cmd_vel in the axes of
+ * the drone: turned 90 deg in yaw, +y of the world is forwards. */
+void test_ext_velocity_is_turned_with_the_yaw(void) {
+    set_orientation(0, 0, sinf(RAD(90.0) / 2), cosf(RAD(90.0) / 2));
+    set_vel_lin(0, 0.5f, 0);
+    float r, p;
+    cmd_vel_2_RP(&r, &p, vel(0, 0));
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, -KP_VEL * 0.5f, p);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.0f, r);
+}
+
+/* kp_vel can be changed while flying (tuning task). */
+void test_ext_uses_the_kp_vel_gain(void) {
+    GAINS k = default_gains;
+    k.kp_vel = 2.0f * KP_VEL;
+    set_gains(&k);
+    float r, p;
+    cmd_vel_2_RP(&r, &p, vel(1.0, 0));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 2.0f * KP_VEL, p);
 }
 
 void test_ext_never_over_max_angle(void) {
@@ -459,19 +554,27 @@ void test_int_pitch_rate_error_only_moves_the_pitch_channel(void) {
 /* A huge error must not take all the throttle: each roll/pitch/yaw term
  * is limited to MAX_POW_RPY so the motors keep the hover thrust. */
 void test_int_attitude_power_is_limited(void) {
-    set_vel_ang(-1000.0f, 1000.0f, 1000.0f);
+    /* Big enough to saturate with any of the gains */
+    set_vel_ang(-100000.0f, 100000.0f, 100000.0f);
     step_same_time();
     Mix c = decompose();
     TEST_ASSERT_DOUBLE_WITHIN(1e-3, MAX_POW_RPY, c.r);
     TEST_ASSERT_DOUBLE_WITHIN(1e-3, -MAX_POW_RPY, c.p);
-    TEST_ASSERT_DOUBLE_WITHIN(1e-3, -MAX_POW_RPY, c.y);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-3, -MAX_POW_YAW, c.y);
+}
+
+/* Yaw has its own limit, smaller than the one of roll / pitch. */
+void test_int_yaw_power_is_limited_to_max_pow_yaw(void) {
+    set_vel_ang(0, 0, 1000.0f);
+    step_same_time();
+    TEST_ASSERT_DOUBLE_WITHIN(1e-3, -MAX_POW_YAW, decompose().y);
 }
 
 void test_int_yaw_follows_cmd_vel_angular_z(void) {
-    mock_target.cmd_vel.angular.z = 0.5;   /* rad/s, small so it is not limited by MAX_POW_RPY */
+    mock_target.cmd_vel.angular.z = 0.5;   /* rad/s, small so it is not limited by MAX_POW_YAW */
     step_same_time();
     Mix c = decompose();
-    TEST_ASSERT_DOUBLE_WITHIN(0.1, KP_RATE * DEG(0.5), c.y);
+    TEST_ASSERT_DOUBLE_WITHIN(0.1, KP_YAW_RATE * DEG(0.5), c.y);
     TEST_ASSERT_DOUBLE_WITHIN(1e-6, 0.0, c.r);
     TEST_ASSERT_DOUBLE_WITHIN(1e-6, 0.0, c.p);
 }
@@ -810,7 +913,30 @@ void test_hest_converges_to_the_barometer(void) {
 void test_hest_one_step_is_filtered(void) {
     set_baro(1.0f);
     step();
-    TEST_ASSERT_FLOAT_WITHIN(1e-4f, K_H * 1.0f, h_est);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, K_H_S * (DT_NS / 1e9f) * 1.0f, h_est);
+}
+
+/* The barometer correction is per second (K_H_S, K_V_S x dt): 0.3 s at
+ * 200 Hz and at 66 Hz give (almost) the same height. */
+static float height_after(int64_t step_ns, int steps) {
+    h_est = 0.0f;
+    last_vel_z = 0.0f;
+    last_t_h = t_now;
+    set_baro(1.0f);
+    float h = 0.0f;
+    for (int i = 0; i < steps; i++) {
+        t_now += step_ns;
+        set_time_imu(t_now);
+        h = get_h(0, 0);
+    }
+    return h;
+}
+
+void test_hest_correction_does_not_depend_on_the_frequency(void) {
+    float fast = height_after(5000000LL, 60);    /* 60 x 5 ms */
+    float slow = height_after(15000000LL, 20);   /* 20 x 15 ms */
+    TEST_ASSERT_TRUE(fast > 0.1f);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f * fast, slow, fast);
 }
 
 void test_hest_upward_acceleration_gives_upward_velocity(void) {
@@ -828,7 +954,7 @@ void test_hest_integrates_with_the_imu_time_in_s(void) {
     step();
     float dt = DT_NS / 1e9f;
     float h_pred = 0.5f * K_G * dt * dt;
-    TEST_ASSERT_FLOAT_WITHIN(1e-4f, K_G * dt - K_V * h_pred, last_vel_z);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, K_G * dt - K_V_S * dt * h_pred, last_vel_z);
 }
 
 void test_hest_long_dt_is_ignored(void) {
@@ -858,8 +984,11 @@ void test_gains_start_with_the_defines(void) {
     get_gains(&k);
     TEST_ASSERT_EQUAL_FLOAT(KP_H, k.kp_h);
     TEST_ASSERT_EQUAL_FLOAT(KD_H, k.kd_h);
+    TEST_ASSERT_EQUAL_FLOAT(KP_VEL, k.kp_vel);
     TEST_ASSERT_EQUAL_FLOAT(KP_ANGLE, k.kp_angle);
     TEST_ASSERT_EQUAL_FLOAT(KP_RATE, k.kp_rate);
+    TEST_ASSERT_EQUAL_FLOAT(KI_RATE, k.ki_rate);
+    TEST_ASSERT_EQUAL_FLOAT(KP_YAW_RATE, k.kp_yaw_rate);
     TEST_ASSERT_EQUAL_FLOAT(MAX_RATE, k.max_rate);
     TEST_ASSERT_EQUAL_FLOAT(MAX_POW_RPY, k.max_pow_rpy);
     TEST_ASSERT_EQUAL_FLOAT(THROTTLE_BASE, k.base);
@@ -922,14 +1051,104 @@ void test_task_init_twice_creates_one_task(void) {
     TEST_ASSERT_EQUAL_INT(1, mock_task_count);
 }
 
-void test_task_period_is_15_ms(void) {
+/* 5 ms (200 Hz) in the drone, 15 ms in simulation (this suite is hw). */
+void test_task_period_is_attitude_task_period_ms(void) {
+    TEST_ASSERT_EQUAL_INT(5, ATTITUDE_TASK_PERIOD_MS);
     mock_run_task(attitude_task, NULL, 10);
-    TEST_ASSERT_EQUAL_UINT64(10 * 15, mock_delay_total_ms);
+    TEST_ASSERT_EQUAL_UINT64(10 * ATTITUDE_TASK_PERIOD_MS, mock_delay_total_ms);
 }
 
 void test_task_controls_every_cycle(void) {
     mock_run_task(attitude_task, NULL, 10);
     TEST_ASSERT_EQUAL_INT(10, motor_calls);
+}
+
+/* ------------------------------------------------------------------ */
+/*            9. INTEGRAL OF THE RATE AND GAIN OF THE YAW             */
+/* ------------------------------------------------------------------ */
+void test_i_accumulates_the_rate_error_while_flying(void) {
+    set_sm_state(HOVERING);
+    set_vel_ang(-10.0f, 0, 0);          /* roll rate error of ~+10 deg/s */
+    step();
+    float dt = DT_NS / 1e9f;
+    TEST_ASSERT_FLOAT_WITHIN(0.003f, KI_RATE * 10.0f * dt, i_roll);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, i_pitch);
+}
+
+void test_i_grows_while_the_error_lasts(void) {
+    set_sm_state(HOVERING);
+    set_vel_ang(0, -10.0f, 0);
+    step();
+    float one = i_pitch;
+    for (int i = 0; i < 4; i++) step();
+    TEST_ASSERT_TRUE(one > 0.0f);
+    TEST_ASSERT_TRUE(i_pitch > 4.0f * one);
+}
+
+/* Also taking off: the torque of the CoM appears when it leaves the ground. */
+void test_i_works_while_taking_off(void) {
+    set_sm_state(TAKING_OFF);
+    set_vel_ang(-10.0f, 0, 0);
+    step();
+    TEST_ASSERT_TRUE(i_roll > 0.0f);
+}
+
+void test_i_is_limited(void) {
+    set_sm_state(HOVERING);
+    i_roll = 1000.0f;
+    i_pitch = -1000.0f;
+    step();
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, MAX_I_RATE, i_roll);
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, -MAX_I_RATE, i_pitch);
+}
+
+/* Without error the integral keeps the torque it learned. */
+void test_i_holds_the_torque_without_error(void) {
+    set_sm_state(HOVERING);
+    i_pitch = 20.0f;
+    step_same_time();
+    TEST_ASSERT_DOUBLE_WITHIN(1e-3, 20.0, decompose().p);
+}
+
+/* Out of the flight states (ARMING, DISARMING...) it goes back to 0. */
+void test_i_is_0_out_of_the_flight(void) {
+    sm_states_t states[] = { INIT, CHECKING, ARMING, DISARMING, ERROR };
+    for (unsigned s = 0; s < sizeof states / sizeof states[0]; s++) {
+        set_sm_state(states[s]);
+        i_roll = 20.0f;
+        i_pitch = -20.0f;
+        step();
+        TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, i_roll);
+        TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, i_pitch);
+    }
+}
+
+/* The same IMU sample again (dt = 0) adds nothing. */
+void test_i_does_not_change_with_the_same_imu_sample(void) {
+    set_sm_state(HOVERING);
+    set_vel_ang(-10.0f, 0, 0);
+    step_same_time();
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, i_roll);
+}
+
+void test_i_is_not_used_in_yaw(void) {
+    set_sm_state(HOVERING);
+    set_vel_ang(0, 0, -10.0f);
+    step();
+    TEST_ASSERT_DOUBLE_WITHIN(1e-3, KP_YAW_RATE * 10.0, decompose().y);
+}
+
+/* ki_rate and kp_yaw_rate can be changed while flying (tuning task). */
+void test_i_gains_can_be_changed(void) {
+    GAINS k = default_gains;
+    k.ki_rate = 0.0f;
+    k.kp_yaw_rate = 1.0f;
+    set_gains(&k);
+    set_sm_state(HOVERING);
+    set_vel_ang(-10.0f, 0, -10.0f);
+    step();
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, i_roll);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-3, 10.0, decompose().y);
 }
 
 int main(void) {
@@ -939,6 +1158,9 @@ int main(void) {
     RUN_TEST(test_comp_alpha_0_returns_the_second);
     RUN_TEST(test_comp_blend_value);
     RUN_TEST(test_comp_alpha_trusts_the_gyro);
+    RUN_TEST(test_comp_alpha_at_15_ms_is_the_old_0_98);
+    RUN_TEST(test_comp_alpha_of_0_is_1);
+    RUN_TEST(test_comp_correction_does_not_depend_on_the_frequency);
 
     RUN_TEST(test_est_level_and_still_is_zero);
     RUN_TEST(test_est_accel_converges_to_the_roll);
@@ -955,15 +1177,21 @@ int main(void) {
     RUN_TEST(test_ext_zero_velocity_gives_zero_angles);
     RUN_TEST(test_ext_is_linear_below_the_limit);
     RUN_TEST(test_ext_forward_velocity_gives_positive_pitch_only);
-    RUN_TEST(test_ext_lateral_velocity_gives_positive_roll_only);
+    RUN_TEST(test_ext_lateral_velocity_gives_negative_roll_only);
     RUN_TEST(test_ext_backward_velocity_gives_negative_pitch);
-    RUN_TEST(test_ext_left_velocity_gives_negative_roll);
+    RUN_TEST(test_ext_right_velocity_gives_positive_roll);
     RUN_TEST(test_ext_is_odd_symmetric);
     RUN_TEST(test_ext_grows_with_the_speed);
     RUN_TEST(test_ext_diagonal_gives_equal_roll_and_pitch);
     RUN_TEST(test_ext_is_limited_to_max_angle);
     RUN_TEST(test_ext_never_over_max_angle);
     RUN_TEST(test_ext_max_angle_is_20_deg);
+    RUN_TEST(test_ext_command_gives_kp_vel_per_m_s);
+    RUN_TEST(test_ext_hover_brakes_a_forward_drift);
+    RUN_TEST(test_ext_hover_brakes_a_left_drift);
+    RUN_TEST(test_ext_at_the_commanded_velocity_it_is_level);
+    RUN_TEST(test_ext_velocity_is_turned_with_the_yaw);
+    RUN_TEST(test_ext_uses_the_kp_vel_gain);
 
     RUN_TEST(test_int_one_motor_command_per_cycle);
     RUN_TEST(test_int_outputs_are_finite);
@@ -972,6 +1200,7 @@ int main(void) {
     RUN_TEST(test_int_roll_rate_error_only_moves_the_roll_channel);
     RUN_TEST(test_int_pitch_rate_error_only_moves_the_pitch_channel);
     RUN_TEST(test_int_attitude_power_is_limited);
+    RUN_TEST(test_int_yaw_power_is_limited_to_max_pow_yaw);
     RUN_TEST(test_int_yaw_follows_cmd_vel_angular_z);
     RUN_TEST(test_int_yaw_at_the_target_rate_gives_zero_yaw);
     RUN_TEST(test_int_response_is_proportional_to_the_error);
@@ -1008,6 +1237,7 @@ int main(void) {
     RUN_TEST(test_hest_still_and_tilted_does_not_drift);
     RUN_TEST(test_hest_converges_to_the_barometer);
     RUN_TEST(test_hest_one_step_is_filtered);
+    RUN_TEST(test_hest_correction_does_not_depend_on_the_frequency);
     RUN_TEST(test_hest_upward_acceleration_gives_upward_velocity);
     RUN_TEST(test_hest_integrates_with_the_imu_time_in_s);
     RUN_TEST(test_hest_long_dt_is_ignored);
@@ -1022,8 +1252,18 @@ int main(void) {
 
     RUN_TEST(test_task_init_creates_the_task_with_the_menuconfig_values);
     RUN_TEST(test_task_init_twice_creates_one_task);
-    RUN_TEST(test_task_period_is_15_ms);
+    RUN_TEST(test_task_period_is_attitude_task_period_ms);
     RUN_TEST(test_task_controls_every_cycle);
+
+    RUN_TEST(test_i_accumulates_the_rate_error_while_flying);
+    RUN_TEST(test_i_grows_while_the_error_lasts);
+    RUN_TEST(test_i_works_while_taking_off);
+    RUN_TEST(test_i_is_limited);
+    RUN_TEST(test_i_holds_the_torque_without_error);
+    RUN_TEST(test_i_is_0_out_of_the_flight);
+    RUN_TEST(test_i_does_not_change_with_the_same_imu_sample);
+    RUN_TEST(test_i_is_not_used_in_yaw);
+    RUN_TEST(test_i_gains_can_be_changed);
 
     return UNITY_END();
 }

@@ -28,7 +28,8 @@ INCS := -I. -Imocks -Iunity \
         -I$(COMP)/global_data/state/include \
         -I$(COMP)/global_data/parameters/include \
         -I$(COMP)/ros_coordinator/include \
-        -I$(COMP)/system/include
+        -I$(COMP)/system/include \
+        -I$(COMP)/diagnostics/include
 
 CFLAGS := -std=gnu11 -O0 -g -Wall -Wextra \
           -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable \
@@ -62,7 +63,7 @@ TESTS := led \
          bmp180 mpu6050 quaternions \
          height_hw height_sim \
          imu_hw imu_sim \
-         attitude_controller odometry tuning \
+         attitude_controller odometry tuning cpu_stats \
          system_hw system_sim \
          ros_coordinator_hw ros_coordinator_sim \
          main
@@ -104,6 +105,9 @@ ros_coordinator_sim_SRC  := test_ros_coordinator.c
 ros_coordinator_sim_EXTRA:= $(STATE) $(PARAMS) $(BMP)
 ros_coordinator_sim_FLAGS:= $(SIM)
 main_SRC                 := test_main.c
+# The CPU log is off in sdkconfig.h (the other modules see empty functions)
+cpu_stats_SRC            := test_cpu_stats.c
+cpu_stats_FLAGS          := -DCONFIG_CPU_STATS_ON=1 -DCONFIG_CPU_STATS_PERIOD_MS=2000
 
 ifdef MODULE_SRC
 MODFLAG := -DMODULE_SRC='"$(abspath $(MODULE_SRC))"'

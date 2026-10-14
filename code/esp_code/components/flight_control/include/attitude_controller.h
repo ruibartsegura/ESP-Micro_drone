@@ -39,8 +39,11 @@ typedef struct attitude_target {
 typedef struct gains {
     float kp_h;        // m error -> motor power
     float kd_h;        // m error -> motor power
+    float kp_vel;      // m/s error -> target roll / pitch (rad)
     float kp_angle;    // deg error -> deg/s target
-    float kp_rate;     // deg/s error -> motor power
+    float kp_rate;     // deg/s error -> motor power (roll / pitch)
+    float ki_rate;     // integral of the deg/s error (deg) -> motor power
+    float kp_yaw_rate; // deg/s error -> motor power (yaw)
     float max_rate;    // max target roll/pitch rate (deg/s)
     float max_pow_rpy; // max power of each roll/pitch/yaw term
     float base;        // hover throttle

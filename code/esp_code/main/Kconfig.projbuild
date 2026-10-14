@@ -170,7 +170,7 @@ menu "X-WING Config"
 
         config SYSTEM_TASK_PRIO
             int "Priority of the system"
-            default 5
+            default 4
             help
                 Priority of the system task, higher value means higher priority
 
@@ -182,7 +182,7 @@ menu "X-WING Config"
 
         config IMU_TASK_PRIO
             int "Priority of the imu task"
-            default 6
+            default 7
             help
                 Priority of imu task, higher value means higher priority
 
@@ -206,7 +206,7 @@ menu "X-WING Config"
 
         config ODOM_TASK_PRIO
             int "Priority of the odom task"
-            default 3
+            default 5
             help
                 Priority of odom task, higher value means higher priority
 
@@ -217,8 +217,8 @@ menu "X-WING Config"
                 Stack size in Bytes of the Attitude task
 
         config ATTITUDE_TASK_PRIO
-            int "Priority of the odom task"
-            default 5
+            int "Priority of the attitude task"
+            default 6
             help
                 Priority of attitude task, higher value means higher priority
 
@@ -238,15 +238,19 @@ menu "X-WING Config"
 
         config MICRO_ROS_STACK
             int "Stack the micro-ROS app (Bytes)"
-            default 16000
+            default 8000
             help
-                Stack size in Bytes of the micro-ROS app
+                Stack size in Bytes of the micro-ROS app. Measured with the
+                CPU log (Diagnostics): it uses ~2.5 KB in simulation
 
         config MICRO_ROS_TASK_PRIO
             int "Priority of the micro-ROS app"
-            default 4
+            default 3
             help
-                Priority of micro-ros task, higher value means higher priority
+                Priority of micro-ros task, higher value means higher priority.
+                Under the control tasks: they only use ~1 ms of every period,
+                so micro-ROS gets the sensors (simulation) and publishes the
+                motors at most 1-2 ms later, but it never delays the control
     endmenu
 
     menu "Simulation"
@@ -265,6 +269,28 @@ menu "X-WING Config"
             default n
             help
                 If gains tune is on, the monitor will allow to change the gains while flying
+    endmenu
+
+    menu "Diagnostics"
+        config CPU_STATS_ON
+            bool "CPU usage and task period log"
+            default n
+            select FREERTOS_USE_TRACE_FACILITY
+            select FREERTOS_GENERATE_RUN_TIME_STATS
+            help
+                Writes in the log, every CPU_STATS_PERIOD_MS, the CPU time of
+                every task and the real period of the drone tasks. Save the
+                monitor (idf.py monitor | tee log.txt) and analyse it with
+                tools/analyze_cpu.py.
+
+        config CPU_STATS_PERIOD_MS
+            int "Time between two logs (ms)"
+            depends on CPU_STATS_ON
+            range 500 60000
+            default 2000
+            help
+                Window of the measures. Shorter gives more detail in the
+                graphs but more lines in the log.
     endmenu
 
 endmenu

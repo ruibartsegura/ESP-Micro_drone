@@ -134,6 +134,14 @@ void setUp(void) {
     cmd_vel_fresh_ret = false;
     cmd_vel_max_age_ms = -1;
     blink_led = true;
+    t_blink_us = -1;
+    mock_time_us = 1000000;   /* 1 s */
+}
+
+/* One cycle of the state machine, ms later (esp_timer for the LEDs). */
+static void cycle_after_ms(int ms) {
+    mock_time_us += ms * 1000LL;
+    state_machine();
 }
 
 void tearDown(void) {}
@@ -291,10 +299,12 @@ void test_sm_ARMING_waits_for_the_takeoff(void) {
     TEST_ASSERT_EQUAL_INT(10, called("get_take_off_ready"));
 }
 
-void test_sm_ARMING_checks_the_service_every_150_ms(void) {
+/* The state machine never waits inside a state: the task period (20 ms)
+ * is the only wait, so it checks the service every cycle. */
+void test_sm_ARMING_does_not_wait_inside_the_state(void) {
     go_to(ARMING);
     state_machine();
-    TEST_ASSERT_EQUAL_UINT64(150, mock_delay_total_ms);
+    TEST_ASSERT_EQUAL_UINT64(0, mock_delay_total_ms);
 }
 
 void test_sm_ARMING_with_takeoff_arms_and_goes_to_TAKING_OFF(void) {
@@ -326,10 +336,26 @@ void test_sm_TAKING_OFF_stays_while_the_height_is_not_reached(void) {
 
 void test_sm_TAKING_OFF_blinks_the_blue_led(void) {
     go_to(TAKING_OFF);
-    for (int i = 0; i < 4; i++) state_machine();
+    for (int i = 0; i < 4; i++) cycle_after_ms(BLINK_PERIOD_MS);
     TEST_ASSERT_EQUAL_INT(2, led_on_count[LED_BLUE]);
     TEST_ASSERT_EQUAL_INT(2, led_off_count[LED_BLUE]);
-    TEST_ASSERT_EQUAL_UINT64(4 * 150, mock_delay_total_ms);
+    TEST_ASSERT_EQUAL_UINT64(0, mock_delay_total_ms);   /* blinks by time, no wait */
+}
+
+/* At 20 ms per cycle the LED only changes every BLINK_PERIOD_MS. */
+void test_sm_blink_changes_the_led_every_blink_period(void) {
+    go_to(TAKING_OFF);
+    for (int i = 0; i < 15; i++) cycle_after_ms(SYSTEM_TASK_PERIOD_MS);   /* 300 ms */
+    TEST_ASSERT_EQUAL_INT(2, led_on_count[LED_BLUE] + led_off_count[LED_BLUE]);
+}
+
+void test_sm_EXTERNAL_CONTROL_blinks_the_green_led_without_waiting(void) {
+    go_to(EXTERNAL_CONTROL);
+    cmd_vel_fresh_ret = true;
+    for (int i = 0; i < 4; i++) cycle_after_ms(BLINK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(EXTERNAL_CONTROL, state);
+    TEST_ASSERT_EQUAL_INT(2, led_off_count[LED_GREEN]);
+    TEST_ASSERT_EQUAL_UINT64(0, mock_delay_total_ms);
 }
 
 void test_sm_TAKING_OFF_height_reached_goes_to_HOVERING_with_blue_led(void) {
@@ -443,7 +469,7 @@ void test_sm_LANDING_targets_the_ground_without_moving(void) {
 
 void test_sm_LANDING_stays_and_blinks_the_red_led_while_flying(void) {
     go_to(LANDING);
-    for (int i = 0; i < 4; i++) state_machine();
+    for (int i = 0; i < 4; i++) cycle_after_ms(BLINK_PERIOD_MS);
     TEST_ASSERT_EQUAL_INT(LANDING, state);
     TEST_ASSERT_EQUAL_INT(2, led_on_count[LED_RED]);
     TEST_ASSERT_EQUAL_INT(2, led_off_count[LED_RED]);
@@ -667,11 +693,13 @@ int main(void) {
     RUN_TEST(test_sm_CHECKING_ok_goes_to_ARMING_with_green_led);
     RUN_TEST(test_sm_CHECKING_fail_goes_to_ERROR);
     RUN_TEST(test_sm_ARMING_waits_for_the_takeoff);
-    RUN_TEST(test_sm_ARMING_checks_the_service_every_150_ms);
+    RUN_TEST(test_sm_ARMING_does_not_wait_inside_the_state);
     RUN_TEST(test_sm_ARMING_with_takeoff_arms_and_goes_to_TAKING_OFF);
     RUN_TEST(test_sm_TAKING_OFF_targets_the_takeoff_altitude_without_moving);
     RUN_TEST(test_sm_TAKING_OFF_stays_while_the_height_is_not_reached);
     RUN_TEST(test_sm_TAKING_OFF_blinks_the_blue_led);
+    RUN_TEST(test_sm_blink_changes_the_led_every_blink_period);
+    RUN_TEST(test_sm_EXTERNAL_CONTROL_blinks_the_green_led_without_waiting);
     RUN_TEST(test_sm_TAKING_OFF_height_reached_goes_to_HOVERING_with_blue_led);
     RUN_TEST(test_sm_TAKING_OFF_does_not_trust_the_height_of_the_previous_target);
     RUN_TEST(test_sm_HOVERING_keeps_the_altitude_and_does_not_move);

@@ -14,7 +14,8 @@
  *     kp_rate 8            change one gain ("kp_rate=8" also works)
  *     reset                go back to the default gains
  *
- *   Gains: kp_h, kp_angle, kp_rate, max_rate, max_pow, base.
+ *   Gains: kp_h, kd_h, kp_vel, kp_angle, kp_rate, ki_rate, kp_yaw, max_rate,
+ *   max_pow, base.
  *
  * Functions:
  *   - print_gains(): logs the current gains.
@@ -63,7 +64,10 @@ typedef struct {
 static const GAIN_INFO gain_info[] = {
     { "kp_h",     offsetof(GAINS, kp_h),        0.0f, 5000.0f },
     { "kd_h",     offsetof(GAINS, kd_h),        0.0f, 5000.0f },
+    { "kp_vel",   offsetof(GAINS, kp_vel),      0.0f,    1.0f },
     { "kp_angle", offsetof(GAINS, kp_angle),    0.0f,  100.0f },
+    { "ki_rate",  offsetof(GAINS, ki_rate),     0.0f,  100.0f },
+    { "kp_yaw",   offsetof(GAINS, kp_yaw_rate), 0.0f,  100.0f },
     { "kp_rate",  offsetof(GAINS, kp_rate),     0.0f,  500.0f },
     { "max_rate", offsetof(GAINS, max_rate),    0.0f, 2000.0f },
     { "max_pow",  offsetof(GAINS, max_pow_rpy), 0.0f, 3000.0f },
@@ -75,13 +79,18 @@ static const GAIN_INFO gain_info[] = {
 static void print_gains(void) {
     GAINS k;
     get_gains(&k);
-    ESP_LOGI(TAG, "kp_h=%.3f kd_h=%.3f kp_angle=%.3f kp_rate=%.3f max_rate=%.1f max_pow=%.1f base=%.1f",
-             k.kp_h, k.kd_h, k.kp_angle, k.kp_rate, k.max_rate, k.max_pow_rpy, k.base);
+    ESP_LOGI(TAG, "kp_h=%.3f kd_h=%.3f kp_vel=%.3f kp_angle=%.3f kp_rate=%.3f",
+             k.kp_h, k.kd_h, k.kp_vel, k.kp_angle, k.kp_rate);
+    ESP_LOGI(TAG, "ki_rate=%.3f kp_yaw=%.3f", k.ki_rate, k.kp_yaw_rate);
+    ESP_LOGI(TAG, "max_rate=%.1f max_pow=%.1f base=%.1f",
+             k.max_rate, k.max_pow_rpy, k.base);
 }
 
 static void print_help(void) {
     ESP_LOGI(TAG, "Commands: help | get | reset | <gain> <value>");
-    ESP_LOGI(TAG, "Gains: kp_h kd_h kp_angle kp_rate max_rate max_pow base (e.g. \"kp_rate 8\")");
+    ESP_LOGI(TAG, "Gains: kp_h kd_h kp_vel kp_angle kp_rate ki_rate kp_yaw max_rate");
+    ESP_LOGI(TAG, "       max_pow base");
+    ESP_LOGI(TAG, "Example: \"kp_vel 0.08\"");
 }
 
 bool tuning_parse_line(const char *line) {

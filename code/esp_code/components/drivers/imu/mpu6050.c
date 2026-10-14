@@ -68,9 +68,10 @@ esp_err_t mpu6050_init(i2c_port_t i2c_num) {
         return ret;
     }
 
-    // Filtro paso-bajo digital (~44 Hz accel / 42 Hz gyro) para reducir
-    // ruido de vibración de motores/hélices.
-    ret = mpu6050_write_reg(i2c_num, MPU6050_REG_CONFIG, 0x03);
+    // Filtro paso-bajo digital (~94 Hz accel / 98 Hz gyro, ~3 ms de retardo)
+    // para reducir ruido de vibración de motores/hélices. Con 42 Hz (0x03)
+    // el control a 200 Hz recibiría datos repetidos y ~5 ms más de retardo.
+    ret = mpu6050_write_reg(i2c_num, MPU6050_REG_CONFIG, 0x02);
     if (ret != ESP_OK) {
         return ret;
     }

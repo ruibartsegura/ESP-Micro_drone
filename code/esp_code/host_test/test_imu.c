@@ -315,8 +315,8 @@ void test_sample_does_not_change_the_position(void) {
 static int delays_of_period;
 static void count_period(TickType_t t) { if (t == IMU_TASK_PERIOD_MS) delays_of_period++; }
 
-void test_task_period_is_10_ms_100_hz(void) {
-    TEST_ASSERT_EQUAL_INT(10, IMU_TASK_PERIOD_MS);
+void test_task_period_is_5_ms_200_hz(void) {
+    TEST_ASSERT_EQUAL_INT(5, IMU_TASK_PERIOD_MS);
     delays_of_period = 0;
     mock_delay_hook = count_period;
     mock_run_task(imu_task, NULL, 20);
@@ -478,7 +478,7 @@ int main(void) {
     RUN_TEST(test_sample_does_not_change_the_position);
 #endif
 
-    RUN_TEST(test_task_period_is_10_ms_100_hz);
+    RUN_TEST(test_task_period_is_5_ms_200_hz);
 #ifdef CONFIG_SIMULATION_ON
     RUN_TEST(test_task_simulation_does_not_touch_the_state);
 #else

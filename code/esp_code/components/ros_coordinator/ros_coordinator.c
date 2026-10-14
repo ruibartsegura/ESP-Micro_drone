@@ -84,6 +84,7 @@
 #include "system.h"
 #include "parameters.h"
 #include "state.h"
+#include "cpu_stats.h"
 #include "sdkconfig.h"
 
 #include <pthread.h>
@@ -94,11 +95,11 @@
 #endif
 
 #define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){ \
-    printf("Failed status on line %d: %d. Aborting.\n",__LINE__,(int)temp_rc); \
+    /* printf("Failed status on line %d: %d. Aborting.\n",__LINE__,(int)temp_rc); */ \
     vTaskDelete(NULL);}}
 
 #define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){ \
-    printf("Failed status on line %d: %d. Continuing.\n",__LINE__,(int)temp_rc);}}
+    /* printf("Failed status on line %d: %d. Continuing.\n",__LINE__,(int)temp_rc); */ }}
 
 static const char *TAG = "MICRO_ROS";
 
@@ -524,11 +525,8 @@ void fill_state_msg(my_msgs__msg__State *out) {
         RCLC_UNUSED(last_call_time);
         motors_cmd_t cmd;
 
-        ESP_LOGI(TAG, "VEL LLEGA");
         if (timer == NULL || !motors_pub_ready) return;
-
         if (xQueueReceive(motors_q, &cmd, 0) != pdTRUE) return;  // nada nuevo
-        ESP_LOGI(TAG, "VEL PASA");
 
         for (int i = 0; i < NUM_MOTORS; i++) {
             motors_msg.velocity.data[i] = cmd.v[i];
@@ -671,7 +669,7 @@ void micro_ros_task(void * arg) {
 
     // Init main timer
     rcl_timer_t timer;
-    const unsigned int timer_timeout = 1000;
+    const unsigned int timer_timeout = 300;
     RCCHECK(rclc_timer_init_default2(
         &timer,
         &support,
@@ -701,7 +699,7 @@ void micro_ros_task(void * arg) {
         // Motors timer
         rcl_timer_t motors_timer;
         RCCHECK(rclc_timer_init_default2(&motors_timer, &support,
-                RCL_MS_TO_NS(30), motors_timer_callback, true));   // ~33 Hz
+                RCL_MS_TO_NS(15), motors_timer_callback, true));   // ~66 Hz
         RCCHECK(rclc_executor_add_timer(&executor, &motors_timer));
 
         // Simulation subs
@@ -712,34 +710,38 @@ void micro_ros_task(void * arg) {
             &h_sub_msg, &height_callback, ON_NEW_DATA));
     #endif
 
-    int64_t last_log_us = esp_timer_get_time();
+    // The period is the timeout of spin_some (it returns before if there
+    // is work): "late" means that one spin took more than 500 ms
+    static task_period_t period = TASK_PERIOD("uros_task", 250);
+
+    // int64_t last_log_us = esp_timer_get_time();
     while (1) {
+        task_period_tick(&period); // CPU / period log (CONFIG_CPU_STATS_ON)
         rcl_ret_t rc = rclc_executor_spin_some(&executor, RCL_MS_TO_NS(250));
 
         if (rc != RCL_RET_OK && rc != RCL_RET_TIMEOUT) {
-            ESP_LOGW(TAG, "spin_some error: %d", (int)rc);
+            // ESP_LOGW(TAG, "spin_some error: %d", (int)rc);
         }
 
-        int64_t now_us = esp_timer_get_time();
-
         #ifndef CONFIG_SIMULATION_ON
+            int64_t now_us = esp_timer_get_time();
             if (now_us - last_sync_us >= TIME_SYNC_PERIOD_US) {
                 last_sync_us = now_us;
                 RCSOFTCHECK(rmw_uros_sync_session(TIME_SYNC_TIMEOUT_MS));
             }
         #endif
 
-        if (now_us - last_log_us >= 5000000) {
-            last_log_us = now_us;
-            UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
-            #ifdef CONFIG_SIMULATION_ON
-                ESP_LOGI(TAG, "alive, stack_min=%u bytes",
-                         (unsigned)(free_words * sizeof(StackType_t)));
-            #else
-                ESP_LOGI(TAG, "alive, stack_min=%u bytes",
-                         (unsigned)(free_words * sizeof(StackType_t)));
-            #endif
-        }
+        // if (now_us - last_log_us >= 5000000) {
+        //     last_log_us = now_us;
+        //     UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
+        //     #ifdef CONFIG_SIMULATION_ON
+        //         ESP_LOGI(TAG, "alive, stack_min=%u bytes",
+        //                  (unsigned)(free_words * sizeof(StackType_t)));
+        //     #else
+        //         ESP_LOGI(TAG, "alive, stack_min=%u bytes",
+        //                  (unsigned)(free_words * sizeof(StackType_t)));
+        //     #endif
+        // }
     }
 }
 

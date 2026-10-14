@@ -5,7 +5,8 @@
  *
  * Description:
  *   IMU module. It starts the I2C bus and the MPU-6050, calibrates it and
- *   reads it in its own FreeRTOS task every 10 ms. The data (acceleration
+ *   reads it in its own FreeRTOS task every 5 ms (200 Hz, the same as the
+ *   attitude controller). The data (acceleration
  *   in g and angular velocity in deg/s) is saved in the global state.
  *   In simulation mode the sensor is not used.
  *
@@ -26,13 +27,15 @@
 #include "esp_log.h"
 
 #include "state.h"
+#include "cpu_stats.h"
 
 #define DEG_TO_RAD (float)(M_PI / 180.0)
 
 // Frecuencia de muestreo/filtrado interna, independiente de a que
 // ritmo se publique por ROS. 100Hz es un buen punto de partida para
 // un Madgwick con MPU6050 en un dron pequeno.
-#define IMU_TASK_PERIOD_MS 10
+#define IMU_TASK_PERIOD_MS 5 // 200 Hz, the rate of the attitude controller
+// #define STACK_LOG_EVERY (5000 / IMU_TASK_PERIOD_MS) // Cycles (~5 s)
 
 static bool is_init = false;
 
@@ -122,19 +125,26 @@ static void imu_sample_and_filter(void) {
 static void imu_task(void *arg) {
     (void)arg;
 
-    int log_counter = 0;
+    // int log_counter = 0;
+    static task_period_t period = TASK_PERIOD("imu_task", IMU_TASK_PERIOD_MS);
+    TickType_t t_wake = xTaskGetTickCount();
 
     while (1) {
+        task_period_tick(&period); // CPU / period log (CONFIG_CPU_STATS_ON)
         imu_sample_and_filter();
 
-        if (++log_counter >= 500) {
-            log_counter = 0;
-            UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
-            ESP_LOGI("imu_task", "stack libre (min historico): %u bytes",
-                     (unsigned)(free_words * sizeof(StackType_t)));
-        }
+        // if (++log_counter >= STACK_LOG_EVERY) {
+            // log_counter = 0;
+            // UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
+            // ESP_LOGI("imu_task", "stack libre (min historico): %u bytes",
+                     // (unsigned)(free_words * sizeof(StackType_t)));
+        // }
 
-        vTaskDelay(pdMS_TO_TICKS(IMU_TASK_PERIOD_MS));
+        // Fixed period (vTaskDelay would add the time of the work). If the
+        // task was late, count again from now instead of running to catch up
+        if (xTaskDelayUntil(&t_wake, pdMS_TO_TICKS(IMU_TASK_PERIOD_MS)) == pdFALSE) {
+            t_wake = xTaskGetTickCount();
+        }
     }
 }
 

@@ -100,9 +100,10 @@ void test_init_sets_accel_range_2g(void) {
     TEST_ASSERT_EQUAL_HEX8(0x00, mock_i2c_regs[ADDR][MPU6050_REG_ACCEL_CONFIG]);
 }
 
-void test_init_sets_low_pass_filter_44hz(void) {
+/* DLPF_CFG = 2: ~94 Hz accel / 98 Hz gyro, enough for the 200 Hz control */
+void test_init_sets_low_pass_filter_94hz(void) {
     mpu6050_init(I2C_NUM_0);
-    TEST_ASSERT_EQUAL_HEX8(0x03, mock_i2c_regs[ADDR][MPU6050_REG_CONFIG]);
+    TEST_ASSERT_EQUAL_HEX8(0x02, mock_i2c_regs[ADDR][MPU6050_REG_CONFIG]);
 }
 
 void test_init_sets_sample_rate_divider_0(void) {
@@ -359,7 +360,7 @@ int main(void) {
     RUN_TEST(test_init_waits_after_wake_up);
     RUN_TEST(test_init_sets_gyro_range_250_dps);
     RUN_TEST(test_init_sets_accel_range_2g);
-    RUN_TEST(test_init_sets_low_pass_filter_44hz);
+    RUN_TEST(test_init_sets_low_pass_filter_94hz);
     RUN_TEST(test_init_sets_sample_rate_divider_0);
     RUN_TEST(test_init_writes_every_register_once);
     RUN_TEST(test_init_error_in_any_write_is_returned_and_stops);

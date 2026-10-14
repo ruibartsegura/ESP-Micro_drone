@@ -298,9 +298,11 @@ void test_task_period_is_10_ms(void) {
 #ifdef CONFIG_SIMULATION_ON
     TEST_ASSERT_EQUAL_INT(40, delays_of_10ms);   /* in simulation the task only waits */
 #else
-    /* each cycle: the conversions of the BMP180 (5 and 8 ms), then the
-     * period. There is at least one period every 4 delays. */
-    TEST_ASSERT_TRUE(delays_of_10ms >= 40 / 4);
+    /* The conversions of the BMP180 (5 + 8 ms) already take more than the
+     * period: xTaskDelayUntil() does not add more (with vTaskDelay it was
+     * 13 + 10 = 23 ms). Each cycle: 2 delays and 13 ms. */
+    TEST_ASSERT_EQUAL_INT(0, delays_of_10ms);
+    TEST_ASSERT_EQUAL_UINT64(20 * 13, mock_delay_total_ms);
 #endif
 }
 
@@ -324,8 +326,8 @@ void test_task_reads_the_sensor_every_cycle(void) {
     for (int i = 0; i < mock_i2c_log_len; i++)
         if (!mock_i2c_log[i].is_read && mock_i2c_log[i].reg == 0xF4 && (mock_i2c_log[i].value & 0x3F) == 0x34)
             pressure_cmds++;
-    TEST_ASSERT_TRUE(delays_of_10ms > 0);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(delays_of_10ms, pressure_cmds, "one pressure reading per period");
+    /* 40 delays = 20 cycles of temperature (5 ms) + pressure (8 ms) */
+    TEST_ASSERT_EQUAL_INT_MESSAGE(20, pressure_cmds, "one pressure reading per cycle");
 }
 #endif
 

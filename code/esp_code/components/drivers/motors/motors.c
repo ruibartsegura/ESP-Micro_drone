@@ -39,7 +39,7 @@ static volatile bool is_testing = false;
 // GPIO pin and LEDC channel are just used with real drone, no simulation
 #ifdef CONFIG_SIMULATION_ON
     #define TEST_POWER  2390
-    #define MAX_POWER   4000
+    #define MAX_POWER   3000
 #else
     #define TEST_POWER  100
     #define MAX_POWER   100
@@ -150,24 +150,24 @@ bool motors_test(void) {
     }
     is_testing = true;
 
-    ESP_LOGI(TAG, "Empieza test");
+    // ESP_LOGI(TAG, "Empieza test");
     double power[N_MOTORS] = {0};
 
     for (int x = 0; x < N_MOTORS; x++) {
-        ESP_LOGI(TAG, "Motor %d", x);
+        // ESP_LOGI(TAG, "Motor %d", x);
         for (int vel = 0; vel <= TEST_POWER/2; vel = vel + 50) {
             power[x] = vel;
             write_motors(power);
             vTaskDelay(pdMS_TO_TICKS(150));
         }
-        ESP_LOGI(TAG, "MAX POWER");
+        // ESP_LOGI(TAG, "MAX POWER");
         for (int vel = TEST_POWER/2; vel >= 0; vel = vel - 100) {
             power[x] = vel;
             write_motors(power);
             vTaskDelay(pdMS_TO_TICKS(150));
         }
         power[x] = 0;
-        ESP_LOGI(TAG, "FINISH MOTOR X");
+        // ESP_LOGI(TAG, "FINISH MOTOR X");
     }
 
     // Make sure the motors are stopped before finish the test
@@ -175,7 +175,7 @@ bool motors_test(void) {
     vTaskDelay(pdMS_TO_TICKS(150));
 
 
-    ESP_LOGI(TAG, "Termina test");
+    // ESP_LOGI(TAG, "Termina test");
     is_testing = false;
     return true;
 }

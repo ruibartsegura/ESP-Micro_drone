@@ -5,10 +5,14 @@
  *
  * Description:
  *   Odometry estimator of the drone. It runs in its own FreeRTOS task
- *   every 10 ms. The estimation itself is not implemented yet.
+ *   every 10 ms. It estimates the orientation (Madgwick) and the horizontal
+ *   velocity and position integrating the accelerometer in world axes. The
+ *   velocity "forgets" with V_LEAK_TAU (leaky integration): with only an
+ *   IMU the drift has no limit, so only the recent movements are kept
+ *   (enough to brake a drift in the velocity loop).
  *
  * Functions:
- *   - estimate_odom(): estimates the odometry (empty for now).
+ *   - estimate_odom(): estimates the orientation, velocity and position.
  *   - odom_task(): FreeRTOS task that calls estimate_odom() periodically.
  *   - odom_estimator_init(): creates the odometry task.
  *   - odom_estimator_test(): checks that the module started correctly.
@@ -26,12 +30,17 @@
 #include "quaternions.h"
 #include "attitude_controller.h"
 #include "state.h"
+#include "cpu_stats.h"
 
 #include "sdkconfig.h"
 
 #define ODOM_TASK_PERIOD_MS 10
 
 #define g 9.81f // Gravity (m/s^2)
+
+// Time constant of the leaky integration of the velocity (s). A bias of
+// the accelerometer of b m/s^2 gives only b * V_LEAK_TAU m/s of error
+#define V_LEAK_TAU 2.5f
 
 static quat_t q;
 static double last_t_imu;
@@ -86,8 +95,9 @@ void estimate_odom() {
     float ax_w = acc_x_world * g;
     float ay_w = acc_y_world * g;
 
-    vel_x += ax_w * dt;
-    vel_y += ay_w * dt;
+    // Leaky integration: the velocity goes back to 0 with V_LEAK_TAU
+    vel_x += (ax_w - vel_x / V_LEAK_TAU) * dt;
+    vel_y += (ay_w - vel_y / V_LEAK_TAU) * dt;
     vel_z = get_vel_z();
     set_vel_lin(vel_x, vel_y, vel_z);
 
@@ -99,17 +109,20 @@ void estimate_odom() {
 void odom_task(void *arg) {
     (void)arg;
 
-    int log_counter = 0;
+    // int log_counter = 0;
+
+    static task_period_t period = TASK_PERIOD("odom_task", ODOM_TASK_PERIOD_MS);
 
     while (1) {
+        task_period_tick(&period); // CPU / period log (CONFIG_CPU_STATS_ON)
         estimate_odom();
 
-        if (++log_counter >= 500) {
-            log_counter = 0;
-            UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
-            ESP_LOGI(TAG, "stack libre (min historico): %u bytes",
-                     (unsigned)(free_words * sizeof(StackType_t)));
-        }
+        // if (++log_counter >= 500) {
+            // log_counter = 0;
+            // UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
+            // ESP_LOGI(TAG, "stack libre (min historico): %u bytes",
+                     // (unsigned)(free_words * sizeof(StackType_t)));
+        // }
 
         vTaskDelay(pdMS_TO_TICKS(ODOM_TASK_PERIOD_MS));
     }
