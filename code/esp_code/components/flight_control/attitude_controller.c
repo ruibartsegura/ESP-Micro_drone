@@ -61,11 +61,8 @@
 #endif
 // #define STACK_LOG_EVERY (3750 / ATTITUDE_TASK_PERIOD_MS) // Cycles (~3.75 s)
 
-// Complementary filter of roll / pitch: time constant (s) of the correction
-// with the accelerometer. The weight of the gyro is calculated with the dt
-// of every sample (alpha_of()), so it does not depend on the frequency.
-// 0.735 s = the old ALPHA 0.98 at 15 ms
-#define TAU_RP 0.735f
+
+#define ALPHA 0.98
 
 #define g 9.81f // Gravity (m/s^2)
 
@@ -88,15 +85,16 @@
 
 #define KP_VEL 0.05f // m/s error -> target roll / pitch (rad), 2.9 deg per m/s
 
-#define KP_ANGLE 2.0f   // deg error -> deg/s target
-#define KP_RATE  0.3f   // deg/s error -> motor power
+#define KP_ANGLE 1.5f // deg error -> deg/s target
 
-#define KI_RATE    0.6f
+#define KP_RATE 0.3f // deg/s error -> motor power
+#define KI_RATE 0.6f
+
 #define MAX_I_RATE 50.0f // Limit of the integral term (pow), ~5 x the CoM torque
 
 #define KP_YAW_RATE 3.0f
 
-#define PITCH_DEVIATION 10 // Value mesured for intial desviation
+#define PITCH_DEVIATION 10.5 // Value mesured for intial desviation
 static bool was_flying = false;
 
 // Gains used by the controller. They start with the defines and can be
@@ -199,13 +197,6 @@ static float complementary_filter(float a, float b, float alpha) {
     return (alpha * a + (1.0 - alpha) * b);
 }
 
-// Weight of the gyro for a step of dt s: the accelerometer corrects with a
-// time constant TAU_RP whatever the frequency is. dt = 0 (the same IMU
-// sample again) gives 1: nothing new to correct with
-static float alpha_of(float dt) {
-    return TAU_RP / (TAU_RP + dt);
-}
-
 
 // ============================================================
 //              Getting height & filtering it
@@ -300,9 +291,9 @@ void get_roll_pitch(float *roll, float *pitch) {
     float pitch_angle = (last_rpy.pitch  + vel_ang.y * dt);
 
     // a = angle, b = angle acceleration
-    float alpha = alpha_of(dt);
-    *roll = complementary_filter(roll_angle, roll_acc, alpha);
-    *pitch = complementary_filter(pitch_angle, pitch_acc, alpha);
+    // float alpha = alpha_of(dt);
+    *roll = complementary_filter(roll_angle, roll_acc, ALPHA);
+    *pitch = complementary_filter(pitch_angle, pitch_acc, ALPHA);
 
     last_rpy.roll = *roll;
     last_rpy.pitch = *pitch;

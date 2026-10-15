@@ -6,10 +6,10 @@
  * Description:
  *   Odometry estimator of the drone. It runs in its own FreeRTOS task
  *   every 10 ms. It estimates the orientation (Madgwick) and the horizontal
- *   velocity and position integrating the accelerometer in world axes. The
- *   velocity "forgets" with V_LEAK_TAU (leaky integration): with only an
- *   IMU the drift has no limit, so only the recent movements are kept
- *   (enough to brake a drift in the velocity loop).
+ *   velocity and position. The velocity comes from the rotor drag: in
+ *   flight the accelerometer measures a_body = -K_DRAG * v_body, so it is
+ *   not integrated and it does not drift. The yaw turns it to world axes
+ *   and the position integrates it.
  *
  * Functions:
  *   - estimate_odom(): estimates the orientation, velocity and position.
@@ -38,9 +38,11 @@
 
 #define g 9.81f // Gravity (m/s^2)
 
-// Time constant of the leaky integration of the velocity (s). A bias of
-// the accelerometer of b m/s^2 gives only b * V_LEAK_TAU m/s of error
-#define V_LEAK_TAU 2.5f
+// Rotor drag: in flight the accelerometer does not see the gravity, only the
+// thrust (Z) and the drag of the rotors, proportional to the velocity:
+// a_body = -K_DRAG * v_body (rosbag 15/10: K_DRAG = 0.124 1/s, corr -1.00)
+#define K_DRAG 0.124f // 1/s
+#define TAU_VEL 0.1f  // Low pass of the velocity (s)
 
 static quat_t q;
 static double last_t_imu;
@@ -83,21 +85,30 @@ void estimate_odom() {
     set_orientation(q.x, q.y, q.z, q.w);
 
     // Get velocities of x & y
-    float acc_x_world = (1 - 2*(q.y*q.y + q.z*q.z)) * acc_lin.x
-                      + 2*(q.x*q.y - q.w*q.z)       * acc_lin.y
-                      + 2*(q.x*q.z + q.w*q.y)       * acc_lin.z;
+    // Velocity in the axes of the drone. Only in flight: on the ground the
+    // accelerometer sees the gravity of the tilt, not the drag
+    sm_states_t sm;
+    get_sm_state(&sm);
+    bool flying = sm == TAKING_OFF || sm == HOVERING
+                  || sm == EXTERNAL_CONTROL || sm == LANDING;
 
-    float acc_y_world = 2*(q.x*q.y + q.w*q.z)       * acc_lin.x
-                      + (1 - 2*(q.x*q.x + q.z*q.z)) * acc_lin.y
-                      + 2*(q.y*q.z - q.w*q.x)       * acc_lin.z;
+    float vbx = 0.0f, vby = 0.0f;
+    if (flying) {
+        vbx = -acc_lin.x * g / K_DRAG; // acc_lin in g -> m/s^2
+        vby = -acc_lin.y * g / K_DRAG;
+    }
 
-    // x & y without gravity
-    float ax_w = acc_x_world * g;
-    float ay_w = acc_y_world * g;
+    // Axes of the drone -> world axes with the yaw
+    float yaw = atan2f(2.0f * (q.w * q.z + q.x * q.y),
+                       1.0f - 2.0f * (q.y * q.y + q.z * q.z));
+    float vx_w = cosf(yaw) * vbx - sinf(yaw) * vby;
+    float vy_w = sinf(yaw) * vbx + cosf(yaw) * vby;
 
-    // Leaky integration: the velocity goes back to 0 with V_LEAK_TAU
-    vel_x += (ax_w - vel_x / V_LEAK_TAU) * dt;
-    vel_y += (ay_w - vel_y / V_LEAK_TAU) * dt;
+    // Low pass: the accelerometer is noisy (above all in the real drone).
+    // Out of flight it goes back to 0
+    float beta = dt / (TAU_VEL + dt);
+    vel_x += beta * (vx_w - vel_x);
+    vel_y += beta * (vy_w - vel_y);
     vel_z = get_vel_z();
     set_vel_lin(vel_x, vel_y, vel_z);
 
