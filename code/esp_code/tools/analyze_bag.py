@@ -20,8 +20,11 @@ recorded).
   - Velocity commands (/drone/cmd_vel): segments, what the drone really did
     during each one and how long it was in EXTERNAL_CONTROL.
   - Saves everything in <bag>_analysis/bag.csv
-  - With --plot, saves the drone state vs real graphs in
-    <bag>_analysis/state_vs_real.png (needs: sudo apt install python3-matplotlib)
+  - With --plot, saves 3 graphs of the drone (/drone/state) vs real in
+    <bag>_analysis/ (needs: sudo apt install python3-matplotlib):
+      posicion.png     x, y, z, their velocity and acceleration (world axes)
+      orientacion.png  roll, pitch, yaw, angular velocity and acceleration
+      recorrido.png    path from above (x up, y to the left)
 
 Usage (with ROS sourced):
   source /opt/ros/jazzy/setup.bash
@@ -274,73 +277,225 @@ def print_comparison(rows, source, t0, step):
               f"{r['vy_est']:6.2f} {r['vy_real']:5.2f}")
 
 
-def plot_comparison(rows, source, path, segs=(), t0=0.0):
+def smooth(v, n):
+    # Centered moving average of n samples (the derivatives amplify the noise)
+    if n <= 1 or len(v) < n:
+        return list(v)
+    h = n // 2
+    out = []
+    for i in range(len(v)):
+        w = v[max(0, i - h):i + h + 1]
+        out.append(sum(w) / len(w))
+    return out
+
+
+def deriv(t, v):
+    # Central difference (forward / backward at the ends)
+    n = len(t)
+    if n < 2:
+        return [0.0] * n
+    out = []
+    for i in range(n):
+        a, b = max(i - 1, 0), min(i + 1, n - 1)
+        dt = t[b] - t[a]
+        out.append((v[b] - v[a]) / dt if dt > 0 else 0.0)
+    return out
+
+
+def unwrap(deg):
+    # Yaw without the jumps of +-180
+    out = []
+    for d in deg:
+        if out:
+            d += round((out[-1] - d) / 360) * 360
+        out.append(d)
+    return out
+
+
+def est_series(state, t0):
+    # What the drone sends in /drone/state. acc_lin is the accelerometer in
+    # body axes (m/s^2, with gravity): it is turned to world axes with the q
+    # of the drone and the gravity is subtracted (what the firmware "sees")
+    s = {"t": [t - t0 for t, _ in state]}
+    for k in ("x", "y", "z", "vx", "vy", "vz", "ax", "ay", "az",
+              "roll", "pitch", "yaw", "wroll", "wpitch", "wyaw"):
+        s[k] = []
+    for _, m in state:
+        s["x"].append(m.pos.x); s["y"].append(m.pos.y); s["z"].append(m.pos.z)
+        s["vx"].append(m.vel_lin.x); s["vy"].append(m.vel_lin.y); s["vz"].append(m.vel_lin.z)
+        a = rotate(m.q, (m.acc_lin.x, m.acc_lin.y, m.acc_lin.z))
+        s["ax"].append(a[0]); s["ay"].append(a[1]); s["az"].append(a[2] - G)
+        r, p = quat_to_rp(m.q)
+        s["roll"].append(r); s["pitch"].append(p); s["yaw"].append(quat_to_yaw(m.q))
+        s["wroll"].append(math.degrees(m.vel_ang.x))
+        s["wpitch"].append(math.degrees(m.vel_ang.y))
+        s["wyaw"].append(math.degrees(m.vel_ang.z))
+    s["yaw"] = unwrap(s["yaw"])
+    for k in ("roll", "pitch", "yaw"):
+        s["d" + k] = deriv(s["t"], s["w" + k])
+    return s
+
+
+def real_series(ref, imu, state, t0):
+    # Position / velocity from the reference (ground truth or IMU integrated),
+    # with x, y aligned with the drone at the first /drone/state message.
+    # Acceleration and orientation from the Gazebo IMU (true orientation, no
+    # noise): its acceleration turned with the true q is the real one
+    s = {"t": [t - t0 for t, *_ in ref]}
+    off = (0.0, 0.0)
+    if state and ref:
+        ts = [x[0] for x in ref]
+        p = ref[max(bisect.bisect_right(ts, state[0][0]) - 1, 0)][1]
+        off = (state[0][1].pos.x - p[0], state[0][1].pos.y - p[1])
+    s["x"] = [p[0] + off[0] for _, p, _, _ in ref]
+    s["y"] = [p[1] + off[1] for _, p, _, _ in ref]
+    s["z"] = [p[2] for _, p, _, _ in ref]
+    s["vx"] = [v[0] for _, _, v, _ in ref]
+    s["vy"] = [v[1] for _, _, v, _ in ref]
+    s["vz"] = [v[2] for _, _, v, _ in ref]
+
+    s["t_imu"] = [t - t0 for t, _ in imu]
+    acc = [rotate(m.orientation, (m.linear_acceleration.x, m.linear_acceleration.y,
+                                  m.linear_acceleration.z)) for _, m in imu]
+    # Gravity of the simulation (Gazebo uses 9.8): median of the first ~1 s
+    # with the drone still (the median does not take the impact of the spawn)
+    rest = sorted(a[2] for a in acc[:60])
+    g_sim = rest[len(rest) // 2] if rest else G
+    n = max(1, int(round(0.1 / ((s["t_imu"][-1] - s["t_imu"][0]) / len(imu))))) if len(imu) > 1 else 1
+    s["ax"] = smooth([a[0] for a in acc], n)
+    s["ay"] = smooth([a[1] for a in acc], n)
+    s["az"] = smooth([a[2] - g_sim for a in acc], n)
+    rp = [quat_to_rp(m.orientation) for _, m in imu]
+    s["roll"] = [r for r, _ in rp]
+    s["pitch"] = [p for _, p in rp]
+    s["yaw"] = unwrap([quat_to_yaw(m.orientation) for _, m in imu])
+    s["wroll"] = [math.degrees(m.angular_velocity.x) for _, m in imu]
+    s["wpitch"] = [math.degrees(m.angular_velocity.y) for _, m in imu]
+    s["wyaw"] = [math.degrees(m.angular_velocity.z) for _, m in imu]
+    for k in ("roll", "pitch", "yaw"):
+        s["d" + k] = smooth(deriv(s["t_imu"], s["w" + k]), n)
+    return s
+
+
+def robust_ylim(a, *series, q=0.01):
+    # Y limits without the impacts (spawn, landings): the values between the
+    # 1 % and the 99 % of the samples, with a margin. Only if the spikes are
+    # much bigger than the rest
+    v = sorted(x for s in series for x in s)
+    if len(v) < 20:
+        return False
+    lo, hi = v[int(q * len(v))], v[int((1 - q) * len(v)) - 1]
+    if v[-1] - v[0] < 3 * (hi - lo):
+        return False
+    m = max(0.25 * (hi - lo), 1e-3)
+    a.set_ylim(lo - m, hi + m)
+    return True
+
+
+def mark_time(axes, est, segs, t0):
+    # States of the drone as vertical lines and velocity commands as shaded
+    # segments. State changes of less than 1 s (HOVERING <-> EXTERNAL_CONTROL
+    # between commands) are joined
+    t, sm = est["t"], est["sm"]
+    changes = [(t[i], sm[i]) for i in range(len(t)) if i == 0 or sm[i] != sm[i - 1]]
+    kept = []
+    for i, (tc, s) in enumerate(changes):
+        t_next = changes[i + 1][0] if i + 1 < len(changes) else t[-1]
+        if (t_next - tc >= 1.0 or i + 1 == len(changes)) and (not kept or kept[-1][1] != s):
+            kept.append((tc, s))
+    for tc, s in kept:
+        for a in axes.flat:
+            a.axvline(tc, color="gray", ls="--", lw=0.7)
+        name = SM_STATES[s] if s < len(SM_STATES) else str(s)
+        axes[0][0].text(tc, 1.02, name, transform=axes[0][0].get_xaxis_transform(),
+                        rotation=45, fontsize=7, ha="left", va="bottom")
+    for n, sg in enumerate(segs):
+        a0, a1 = sg["start"] - t0, sg["end"] - t0
+        vx, vy, _, wz = sg["val"]
+        color = "tab:green" if vx + vy + wz >= 0 else "tab:purple"
+        for a in axes.flat:
+            a.axvspan(a0, a1, color=color, alpha=0.12, lw=0)
+        label = " ".join(f"{k}={v:+g}" for k, v in (("vx", vx), ("vy", vy), ("wz", wz)) if v)
+        # Labels in two heights so the short commands do not overlap
+        axes[0][1].text((a0 + a1) / 2, 1.02 + 0.07 * (n % 2), label or "0",
+                        transform=axes[0][1].get_xaxis_transform(),
+                        fontsize=7, ha="center", va="bottom")
+
+
+def grid_figure(plt, title, est, real, rows, t_real_key, segs, t0, path):
+    # 3x3: one row per magnitude, one column per axis. Estimated = /drone/state,
+    # real = Gazebo
+    fig, ax = plt.subplots(3, 3, figsize=(16, 10), sharex=True)
+    fig.suptitle(title, fontsize=10)
+    for i, (keys, unit) in enumerate(rows):
+        for j, (k, name) in enumerate(keys):
+            a = ax[i][j]
+            tr = real[t_real_key[i]]
+            a.plot(tr, real[k], "-", lw=1, color="tab:orange", label="real")
+            a.plot(est["t"], est[k], ".-", ms=3, lw=1, color="tab:blue", label="medido (/drone/state)")
+            a.set_ylabel(f"{name} ({unit})")
+            a.grid(alpha=0.3)
+            if i > 0 and robust_ylim(a, real[k], est[k]):
+                a.text(0.01, 0.97, "picos recortados", transform=a.transAxes,
+                       fontsize=6, color="gray", va="top")
+    for a in ax[2]:
+        a.set_xlabel("t (s)")
+    ax[0][2].legend(fontsize=7, loc="upper right")
+    mark_time(ax, est, segs, t0)
+    fig.tight_layout()
+    fig.savefig(path, dpi=120)
+    plt.close(fig)
+
+
+def plot_figures(state, ref, imu, source, out, segs=(), t0=0.0):
     import matplotlib
     matplotlib.use("Agg")  # no window, only the png
     import matplotlib.pyplot as plt
 
-    t = [r["t"] for r in rows]
-    fig, ax = plt.subplots(3, 3, figsize=(16, 10))
-    fig.suptitle(f"/drone/state (estimado) vs real — {source}", fontsize=10)
+    est = est_series(state, t0)
+    est["sm"] = [m.sm_state for _, m in state]
+    real = real_series(ref, imu, state, t0)
+    paths = []
 
-    panels = [("x", "x (m)"), ("y", "y (m)"), ("z", "z (m)"),
-              ("vx", "vx (m/s)"), ("vy", "vy (m/s)"), ("vz", "vz (m/s)")]
-    for a, (k, label) in zip(ax[:2].flat, panels):
-        a.plot(t, [r[f"{k}_est"] for r in rows], ".-", label="estimado")
-        a.plot(t, [r[f"{k}_real"] for r in rows], ".-", label="real")
-        a.set_ylabel(label)
+    # 1. Position, velocity and acceleration
+    p = os.path.join(out, "posicion.png")
+    grid_figure(plt, f"Posición, velocidad y aceleración (ejes mundo): medido vs real — {source}",
+                est, real,
+                [((("x", "x"), ("y", "y"), ("z", "z")), "m"),
+                 ((("vx", "vx"), ("vy", "vy"), ("vz", "vz")), "m/s"),
+                 ((("ax", "ax"), ("ay", "ay"), ("az", "az")), "m/s²")],
+                ["t", "t", "t_imu"], segs, t0, p)
+    paths.append(p)
 
-    for k in ("roll", "pitch", "yaw"):
-        ax[2][0].plot(t, [r[f"e_{k}"] for r in rows], ".-", label=k)
-    ax[2][0].set_ylabel("error orientación (°)")
+    # 2. Orientation, angular velocity and angular acceleration
+    p = os.path.join(out, "orientacion.png")
+    grid_figure(plt, "Orientación, velocidad y aceleración angular: medido (q de Madgwick, giroscopio) vs real (IMU de Gazebo)",
+                est, real,
+                [((("roll", "roll"), ("pitch", "pitch"), ("yaw", "yaw")), "°"),
+                 ((("wroll", "ω roll"), ("wpitch", "ω pitch"), ("wyaw", "ω yaw")), "°/s"),
+                 ((("droll", "α roll"), ("dpitch", "α pitch"), ("dyaw", "α yaw")), "°/s²")],
+                ["t_imu", "t_imu", "t_imu"], segs, t0, p)
+    paths.append(p)
 
-    ax[2][1].plot(t, [r["e_xy"] for r in rows], ".-", color="tab:red")
-    ax[2][1].set_ylabel("error xy (m)")
-
-    # State changes as vertical lines on the time graphs. Changes that last
-    # less than 1 s (HOVERING <-> EXTERNAL_CONTROL between commands) are joined
-    changes = [(r["t"], r["sm"]) for i, r in enumerate(rows) if i == 0 or r["sm"] != rows[i - 1]["sm"]]
-    kept = []
-    for i, (t, sm) in enumerate(changes):
-        t_next = changes[i + 1][0] if i + 1 < len(changes) else rows[-1]["t"]
-        if (t_next - t >= 1.0 or i + 1 == len(changes)) and (not kept or kept[-1][1] != sm):
-            kept.append((t, sm))
-    for t, sm in kept:
-        name = SM_STATES[sm] if sm < len(SM_STATES) else str(sm)
-        for a in list(ax[:2].flat) + [ax[2][0], ax[2][1]]:
-            a.axvline(t, color="gray", ls="--", lw=0.7)
-        ax[0][0].text(t, 1.02, name, transform=ax[0][0].get_xaxis_transform(),
-                      rotation=45, fontsize=7, ha="left", va="bottom")
-    for a in list(ax[:2].flat) + [ax[2][0], ax[2][1]]:
-        a.set_xlabel("t (s)")
-        a.grid(alpha=0.3)
-    for a in list(ax[:2].flat) + [ax[2][0]]:
-        a.legend(fontsize=7)
-
-    # Velocity commands as shaded segments
-    for s in segs:
-        a0, a1 = s["start"] - t0, s["end"] - t0
-        vx, vy, _, wz = s["val"]
-        color = "tab:green" if vx + vy >= 0 else "tab:purple"
-        for a in list(ax[:2].flat) + [ax[2][0], ax[2][1]]:
-            a.axvspan(a0, a1, color=color, alpha=0.12, lw=0)
-        label = " ".join(f"{k}={v:+g}" for k, v in (("vx", vx), ("vy", vy), ("wz", wz)) if v)
-        ax[0][1].text((a0 + a1) / 2, 1.02, label or "0", transform=ax[0][1].get_xaxis_transform(),
-                      fontsize=7, ha="center", va="bottom")
-
-    xy = ax[2][2]
-    xy.plot([r["x_est"] for r in rows], [r["y_est"] for r in rows], ".-", label="estimado")
-    xy.plot([r["x_real"] for r in rows], [r["y_real"] for r in rows], ".-", label="real")
-    xy.plot(rows[0]["x_real"], rows[0]["y_real"], "ko", label="inicio")
-    xy.set_xlabel("x (m)")
-    xy.set_ylabel("y (m)")
-    xy.set_aspect("equal", adjustable="datalim")
-    xy.grid(alpha=0.3)
-    xy.legend(fontsize=7)
-
+    # 3. Path seen from above: x forward (up) and y to the left, as in ENU
+    p = os.path.join(out, "recorrido.png")
+    fig, a = plt.subplots(figsize=(9, 9))
+    a.plot(real["y"], real["x"], "-", lw=1.2, color="tab:orange", label="real")
+    a.plot(est["y"], est["x"], ".-", ms=3, lw=1, color="tab:blue", label="medido (/drone/state)")
+    a.plot(real["y"][0], real["x"][0], "ko", label="inicio")
+    a.plot(real["y"][-1], real["x"][-1], "kx", ms=9, label="fin (real)")
+    a.invert_xaxis()  # +y to the left: same view as from behind the drone
+    a.set_xlabel("y (m)  ← izquierda")
+    a.set_ylabel("x (m)  ↑ adelante")
+    a.set_title(f"Recorrido visto desde arriba — {source}", fontsize=10)
+    a.set_aspect("equal", adjustable="datalim")
+    a.grid(alpha=0.3)
+    a.legend(fontsize=8)
     fig.tight_layout()
-    fig.savefig(path, dpi=120)
+    fig.savefig(p, dpi=120)
     plt.close(fig)
+    paths.append(p)
+    return paths
 
 
 def acc_to_rp(a):
@@ -372,7 +527,7 @@ def main():
     ap.add_argument("--step", type=float, default=0.5, help="paso de la tabla en s")
     ap.add_argument("--base", type=float, default=THROTTLE_BASE)
     ap.add_argument("--max-power", type=float, default=MAX_POWER)
-    ap.add_argument("--plot", action="store_true", help="guarda las gráficas de estado vs real en png")
+    ap.add_argument("--plot", action="store_true", help="guarda las 3 gráficas (posición, orientación, recorrido) en png")
     a = ap.parse_args()
 
     bag = os.path.expanduser(a.bag.rstrip("/"))
@@ -479,8 +634,8 @@ def main():
         print(f"CSV: {out}/state_vs_real.csv")
         if a.plot:
             try:
-                plot_comparison(cmp_rows, source, os.path.join(out, "state_vs_real.png"), segs, t0)
-                print(f"PNG: {out}/state_vs_real.png")
+                for p in plot_figures(state, ref, imu, source, out, segs, t0):
+                    print(f"PNG: {p}")
             except ImportError:
                 print("Falta matplotlib: sudo apt install python3-matplotlib")
     elif a.plot:
