@@ -35,7 +35,8 @@ typedef enum {
     EXTERNAL_CONTROL   = 5,
     LANDING            = 6,
     DISARMING          = 7,
-    ERROR              = 8
+    EMERGENCY_LANDING  = 8,
+    ERROR              = 9
 } sm_states_t;
 
 typedef struct {
@@ -72,6 +73,9 @@ void get_acc_lin(vec3_t *out);
 
 void get_time_imu(int64_t *out);
 void get_time_height(int64_t *out);
+
+void get_t_last_sample_imu(int64_t *out);
+void get_t_last_sample_h(int64_t *out);
 
 void get_sm_state(sm_states_t *out);
 

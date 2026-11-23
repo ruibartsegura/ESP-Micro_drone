@@ -29,7 +29,7 @@
  *   - run_ros_task(): runs micro_ros_task() until the first spin.
  *   - find_handle(): looks for an executor handle.
  *   - setUp() / tearDown(): reset the mocks, the module and the state.
- *   - test_params_*, test_cmdvel_*, test_takeoff_*, test_land_*,
+ *   - test_params_*, test_cmdvel_*, test_set_altitude_*, test_land_*,
  *     test_state_msg_*, test_task_*, test_init_*, test_sim_*.
  *   - main(): runs all the tests.
  */
@@ -73,12 +73,12 @@ static const mock_exec_handle_t *find_handle(const void *entity) {
 
 static void set_state(sm_states_t s) { set_sm_state(s); }
 
-static my_msgs__srv__Takeoff_Response call_takeoff(float alt) {
-    my_msgs__srv__Takeoff_Request req = { .altitude = alt };
-    my_msgs__srv__Takeoff_Response res;
+static my_msgs__srv__SetAltitude_Response call_set_altitude(float alt) {
+    my_msgs__srv__SetAltitude_Request req = { .altitude = alt };
+    my_msgs__srv__SetAltitude_Response res;
     memset(&res, 0, sizeof res);
     res.accepted = !false;   /* garbage: the callback must write it */
-    takeoff_callback(&req, &res);
+    set_altitude_callback(&req, &res);
     return res;
 }
 
@@ -95,8 +95,14 @@ static void reset_module(void) {
     is_init = false;
     params_2_update = false;
     take_off_ready = false;
-    altitude = MIN_ALT;
+    target_altitude = MIN_ALT;
     land_ready = false;
+    t_last_link_us = 0;
+    ping_requested = false;
+    ping_result = 0;
+#ifndef CONFIG_SIMULATION_ON
+    t_last_ping_us = 0;
+#endif
     memset(&param_msg, 0, sizeof param_msg);
     memset(&cmd_vel_msg, 0, sizeof cmd_vel_msg);
     memset(&cmd_vel, 0, sizeof cmd_vel);
@@ -113,14 +119,26 @@ static void reset_module(void) {
 #endif
 }
 
+/* k_drag: the second field of the tests of drone/params (another group) */
+static float get_k_drag(void) {
+    odom_params_t o;
+    get_odom_params(&o);
+    return o.k_drag;
+}
+
+static void set_k_drag(float k) {
+    odom_params_t o = { .k_drag = k };
+    set_odom_params(&o);
+}
+
 void setUp(void) {
     mock_reset_all();
     reset_module();
     state_init();
     memset(led_on_calls, 0, sizeof led_on_calls);
-    set_hovering_h(0.5f);
+    params_init();
+    set_k_drag(0.5f);
     set_max_velocity(1.0f);
-    set_land_on_site(true);
 }
 
 void tearDown(void) {}
@@ -128,57 +146,208 @@ void tearDown(void) {}
 /* ------------------------------------------------------------------ */
 /*                        PARAMETERS (drone/params)                   */
 /* ------------------------------------------------------------------ */
-static void send_params(float h, float v, bool land) {
-    my_msgs__msg__Params p = { .h_max = h, .v_max = v, .land_on_site = land };
+/* Message with every field at -1, like the default values of Params.msg
+ * (what ros2 topic pub sends for the fields that are not filled). */
+static my_msgs__msg__Params empty_params(void) {
+    my_msgs__msg__Params p;
+    float *f = (float *)&p;
+    for (size_t i = 0; i < sizeof p / sizeof(float); i++) f[i] = -1.0f;
+    return p;
+}
+
+static void send_params(float k, float v) {
+    my_msgs__msg__Params p = empty_params();
+    p.k_drag = k;
+    p.v_max = v;
     param_callback(&p);
 }
 
 void test_params_callback_does_not_apply_them_yet(void) {
-    send_params(1.2f, 2.5f, false);
+    send_params(1.2f, 2.5f);
     TEST_ASSERT_TRUE(params_2_update);
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.5f, get_hovering_h());
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.5f, get_k_drag());
 }
 
 void test_params_apply_sets_every_parameter(void) {
-    send_params(1.2f, 2.5f, false);
+    send_params(1.2f, 2.5f);
     apply_pending_params();
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.2f, get_hovering_h());
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.2f, get_k_drag());
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 2.5f, get_max_velocity());
-    TEST_ASSERT_FALSE(get_land_on_site());
     TEST_ASSERT_FALSE(params_2_update);
 }
 
 void test_params_apply_without_new_message_does_nothing(void) {
     apply_pending_params();
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.5f, get_hovering_h());
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.5f, get_k_drag());
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, get_max_velocity());
 }
 
 void test_params_last_message_wins(void) {
-    send_params(1.0f, 1.0f, true);
-    send_params(2.0f, 3.0f, false);
+    send_params(1.0f, 1.0f);
+    send_params(2.0f, 3.0f);
     apply_pending_params();
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 2.0f, get_hovering_h());
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 2.0f, get_k_drag());
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 3.0f, get_max_velocity());
+}
+
+/* Two messages before applying them (sent while flying): both are kept. */
+void test_params_pending_messages_are_merged(void) {
+    my_msgs__msg__Params a = empty_params();
+    a.kp_rate = 9.0f;
+    param_callback(&a);
+    my_msgs__msg__Params b = empty_params();
+    b.k_drag = 1.0f;
+    param_callback(&b);
+    apply_pending_params();
+    GAINS k;
+    get_gains(&k);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 9.0f, k.kp_rate);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, get_k_drag());
+}
+
+/* The same field in two pending messages: the last one wins. */
+void test_params_merge_last_value_of_a_field_wins(void) {
+    my_msgs__msg__Params a = empty_params();
+    a.kp_rate = 9.0f;
+    a.kp_vel = 0.08f;
+    param_callback(&a);
+    my_msgs__msg__Params b = empty_params();
+    b.kp_rate = 7.0f;
+    param_callback(&b);
+    apply_pending_params();
+    GAINS k;
+    get_gains(&k);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 7.0f, k.kp_rate);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.08f, k.kp_vel);
+}
+
+/* After applying, the next message starts again (it is not merged with the
+ * one already applied). */
+void test_params_merge_starts_again_after_applying(void) {
+    my_msgs__msg__Params a = empty_params();
+    a.kp_rate = 9.0f;
+    param_callback(&a);
+    apply_pending_params();
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, -1.0f, param_msg.kp_vel);
+
+    my_msgs__msg__Params b = empty_params();
+    b.kp_vel = 0.08f;
+    param_callback(&b);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, -1.0f, param_msg.kp_rate);  /* fresh message */
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.08f, param_msg.kp_vel);
+}
+
+/* A bad value in a later message is merged too, so the whole pending set is
+ * rejected (it does not hide behind a good earlier value). */
+void test_params_merge_keeps_a_bad_value_to_reject_it(void) {
+    params_t before, after;
+    get_all_params(&before);
+    my_msgs__msg__Params a = empty_params();
+    a.kp_h = 50.0f;
+    param_callback(&a);
+    my_msgs__msg__Params b = empty_params();
+    b.kp_h = NAN;
+    param_callback(&b);
+    apply_pending_params();
+    get_all_params(&after);
+    TEST_ASSERT_EQUAL_MEMORY(&before, &after, sizeof before);
+}
+
+/* Fields at -1 (not filled) keep their value. */
+void test_params_unfilled_fields_do_not_change(void) {
+    params_t before, after;
+    get_all_params(&before);
+    my_msgs__msg__Params m = empty_params();
+    param_callback(&m);
+    apply_pending_params();
+    get_all_params(&after);
+    TEST_ASSERT_EQUAL_MEMORY(&before, &after, sizeof before);
+    TEST_ASSERT_FALSE(params_2_update);
+}
+
+/* Only the filled field changes. */
+void test_params_one_gain_only_changes_that_gain(void) {
+    params_t before, after;
+    get_all_params(&before);
+    my_msgs__msg__Params m = empty_params();
+    m.kp_rate = 9.0f;
+    param_callback(&m);
+    apply_pending_params();
+    get_all_params(&after);
+    before.gains.kp_rate = 9.0f;
+    TEST_ASSERT_EQUAL_MEMORY(&before, &after, sizeof before);
+}
+
+void test_params_gains_and_odometry_are_applied(void) {
+    my_msgs__msg__Params m = empty_params();
+    m.kp_vel = 0.08f;
+    m.alpha = 0.95f;
+    m.max_angle = 0.3f;
+    m.max_pow_yaw = 100.0f;
+    m.pitch_deviation = 5.0f;
+    m.roll_deviation = 1.5f;
+    m.k_drag = 0.2f;
+    param_callback(&m);
+    apply_pending_params();
+    GAINS k;
+    get_gains(&k);
+    odom_params_t o;
+    get_odom_params(&o);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.08f, k.kp_vel);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.95f, k.alpha);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.3f, k.max_angle);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 100.0f, k.max_pow_yaw);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 5.0f, k.pitch_deviation);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.5f, k.roll_deviation);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.2f, o.k_drag);
+}
+
+/* One value out of range: nothing of the message is applied. */
+void test_params_out_of_range_rejects_the_whole_message(void) {
+    params_t before, after;
+    get_all_params(&before);
+    my_msgs__msg__Params m = empty_params();
+    m.k_drag = 1.0f;         /* valid */
+    m.kp_rate = 9999.0f;     /* out of range */
+    param_callback(&m);
+    apply_pending_params();
+    get_all_params(&after);
+    TEST_ASSERT_EQUAL_MEMORY(&before, &after, sizeof before);
+    TEST_ASSERT_FALSE_MESSAGE(params_2_update, "a rejected message is not retried");
+}
+
+void test_params_nan_and_out_of_range_are_rejected(void) {
+    my_msgs__msg__Params m = empty_params();
+    m.kp_h = NAN;
+    param_callback(&m);
+    apply_pending_params();
+    TEST_ASSERT_FALSE(isnan(get_k_drag()));
+    GAINS k;
+    get_gains(&k);
+    TEST_ASSERT_FALSE(isnan(k.kp_h));
+
+    send_params(200.0f, 1.0f);  /* k_drag > 100 */
+    apply_pending_params();
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.5f, get_k_drag());
 }
 
 void test_params_timer_applies_them_in_CHECKING(void) {
     rcl_timer_t t;
     set_state(CHECKING);
-    send_params(1.5f, 2.0f, true);
+    send_params(1.5f, 2.0f);
     timer_callback(&t, 0);
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.5f, get_hovering_h());
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.5f, get_k_drag());
 }
 
 void test_params_timer_does_not_apply_them_while_flying(void) {
     const sm_states_t flying[] = { ARMING, TAKING_OFF, HOVERING, EXTERNAL_CONTROL, LANDING };
     rcl_timer_t t;
     for (size_t i = 0; i < sizeof flying / sizeof flying[0]; i++) {
-        set_hovering_h(0.5f);
+        set_k_drag(0.5f);
         set_state(flying[i]);
-        send_params(2.5f, 2.0f, true);
+        send_params(2.5f, 2.0f);
         timer_callback(&t, 0);
-        TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.5f, get_hovering_h());
+        TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.5f, get_k_drag());
         TEST_ASSERT_TRUE_MESSAGE(params_2_update, "the parameters must stay pending");
     }
 }
@@ -299,7 +468,8 @@ static void *thread_cmd_vel(void *a) {
     return NULL;
 }
 static void *thread_clear_cmd_vel(void *a) { (void)a; clear_cmd_vel(); getter_done = 1; return NULL; }
-static void *thread_take_off_alt(void *a) { (void)a; (void)get_take_off_alt(); getter_done = 1; return NULL; }
+static void *thread_target_altitude(void *a) { (void)a; (void)get_target_altitude(); getter_done = 1; return NULL; }
+static void *thread_t_last_link(void *a) { (void)a; (void)get_t_last_link(); getter_done = 1; return NULL; }
 static void *thread_landing_ready(void *a) { (void)a; (void)get_landing_ready(); getter_done = 1; return NULL; }
 
 static bool getter_waits_for_the_mutex(void *(*fn)(void *)) {
@@ -314,8 +484,8 @@ static bool getter_waits_for_the_mutex(void *(*fn)(void *)) {
     return waited;
 }
 
-void test_cmdvel_take_off_alt_getter_uses_the_mutex(void) {
-    TEST_ASSERT_TRUE(getter_waits_for_the_mutex(thread_take_off_alt));
+void test_cmdvel_target_altitude_getter_uses_the_mutex(void) {
+    TEST_ASSERT_TRUE(getter_waits_for_the_mutex(thread_target_altitude));
 }
 
 void test_cmdvel_getter_uses_the_mutex(void) {
@@ -328,42 +498,42 @@ void test_cmdvel_clear_uses_the_mutex(void) {
 }
 
 /* ------------------------------------------------------------------ */
-/*                    TAKE-OFF SERVICE (drone/takeoff_srv)            */
+/*            TAKE-OFF / ALTITUDE SERVICE (drone/set_altitude)        */
 /* ------------------------------------------------------------------ */
-void test_takeoff_default_not_ready_and_min_altitude(void) {
+void test_set_altitude_default_not_ready_and_min_altitude(void) {
     TEST_ASSERT_FALSE(get_take_off_ready());
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, MIN_ALT, get_take_off_alt());
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, MIN_ALT, get_target_altitude());
 }
 
-void test_takeoff_limits_are_0_5_and_3_m(void) {
+void test_set_altitude_limits_are_0_5_and_3_m(void) {
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.5f, MIN_ALT);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 3.0f, MAX_ALT);
 }
 
-void test_takeoff_accepted_in_ARMING(void) {
+void test_set_altitude_accepted_in_ARMING(void) {
     set_state(ARMING);
-    my_msgs__srv__Takeoff_Response r = call_takeoff(1.5f);
+    my_msgs__srv__SetAltitude_Response r = call_set_altitude(1.5f);
     TEST_ASSERT_TRUE(r.accepted);
     TEST_ASSERT_EQUAL_STRING("OK", r.reason.data);
     TEST_ASSERT_TRUE(get_take_off_ready());
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.5f, get_take_off_alt());
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.5f, get_target_altitude());
     rosidl_runtime_c__String__fini(&r.reason);
 }
 
-void test_takeoff_rejected_in_ERROR(void) {
+void test_set_altitude_rejected_in_ERROR(void) {
     set_state(ERROR);
-    my_msgs__srv__Takeoff_Response r = call_takeoff(1.0f);
+    my_msgs__srv__SetAltitude_Response r = call_set_altitude(1.0f);
     TEST_ASSERT_FALSE(r.accepted);
     TEST_ASSERT_EQUAL_STRING("Status error", r.reason.data);
     TEST_ASSERT_FALSE(get_take_off_ready());
     rosidl_runtime_c__String__fini(&r.reason);
 }
 
-void test_takeoff_rejected_in_every_state_except_ARMING(void) {
-    const sm_states_t states[] = { INIT, CHECKING, TAKING_OFF, HOVERING, EXTERNAL_CONTROL, LANDING, DISARMING };
+void test_set_altitude_rejected_when_not_armed_or_flying(void) {
+    const sm_states_t states[] = { INIT, CHECKING, LANDING, DISARMING, EMERGENCY_LANDING };
     for (size_t i = 0; i < sizeof states / sizeof states[0]; i++) {
         set_state(states[i]);
-        my_msgs__srv__Takeoff_Response r = call_takeoff(1.0f);
+        my_msgs__srv__SetAltitude_Response r = call_set_altitude(1.0f);
         TEST_ASSERT_FALSE(r.accepted);
         TEST_ASSERT_EQUAL_STRING("Not armed", r.reason.data);
         TEST_ASSERT_FALSE(get_take_off_ready());
@@ -371,64 +541,102 @@ void test_takeoff_rejected_in_every_state_except_ARMING(void) {
     }
 }
 
-void test_takeoff_rejected_out_of_range(void) {
-    const float bad[] = { 0.49f, 3.01f, 0.0f, -1.0f, 100.0f };
-    set_state(ARMING);
-    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
-        my_msgs__srv__Takeoff_Response r = call_takeoff(bad[i]);
-        TEST_ASSERT_FALSE(r.accepted);
-        TEST_ASSERT_EQUAL_STRING("Invalid altitude", r.reason.data);
-        TEST_ASSERT_FALSE(get_take_off_ready());
-        TEST_ASSERT_FLOAT_WITHIN(1e-6f, MIN_ALT, get_take_off_alt());
+void test_set_altitude_changes_the_altitude_in_flight(void) {
+    const sm_states_t states[] = { TAKING_OFF, HOVERING, EXTERNAL_CONTROL };
+    for (size_t i = 0; i < sizeof states / sizeof states[0]; i++) {
+        set_state(states[i]);
+        float alt = 1.0f + 0.5f * (float)i;
+        my_msgs__srv__SetAltitude_Response r = call_set_altitude(alt);
+        TEST_ASSERT_TRUE(r.accepted);
+        TEST_ASSERT_EQUAL_STRING("Altitude changed", r.reason.data);
+        TEST_ASSERT_FLOAT_WITHIN(1e-6f, alt, get_target_altitude());
         rosidl_runtime_c__String__fini(&r.reason);
     }
 }
 
-void test_takeoff_limits_are_accepted(void) {
+// In flight it must not set take_off_ready: if not, the drone would take
+// off again in the next ARMING (after landing)
+void test_set_altitude_in_flight_does_not_take_off_again(void) {
+    set_state(HOVERING);
+    my_msgs__srv__SetAltitude_Response r = call_set_altitude(2.0f);
+    TEST_ASSERT_TRUE(r.accepted);
+    TEST_ASSERT_FALSE(get_take_off_ready());
+    rosidl_runtime_c__String__fini(&r.reason);
+}
+
+void test_set_altitude_in_flight_out_of_range_keeps_the_altitude(void) {
     set_state(ARMING);
-    my_msgs__srv__Takeoff_Response r1 = call_takeoff(0.5f);
+    my_msgs__srv__SetAltitude_Response r1 = call_set_altitude(1.0f);
+    set_state(HOVERING);
+    const float bad[] = { 0.0f, 9.0f, NAN };
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+        my_msgs__srv__SetAltitude_Response r = call_set_altitude(bad[i]);
+        TEST_ASSERT_FALSE(r.accepted);
+        TEST_ASSERT_EQUAL_STRING("Invalid altitude", r.reason.data);
+        TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, get_target_altitude());
+        rosidl_runtime_c__String__fini(&r.reason);
+    }
+    rosidl_runtime_c__String__fini(&r1.reason);
+}
+
+void test_set_altitude_rejected_out_of_range(void) {
+    const float bad[] = { 0.49f, 3.01f, 0.0f, -1.0f, 100.0f };
+    set_state(ARMING);
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+        my_msgs__srv__SetAltitude_Response r = call_set_altitude(bad[i]);
+        TEST_ASSERT_FALSE(r.accepted);
+        TEST_ASSERT_EQUAL_STRING("Invalid altitude", r.reason.data);
+        TEST_ASSERT_FALSE(get_take_off_ready());
+        TEST_ASSERT_FLOAT_WITHIN(1e-6f, MIN_ALT, get_target_altitude());
+        rosidl_runtime_c__String__fini(&r.reason);
+    }
+}
+
+void test_set_altitude_limits_are_accepted(void) {
+    set_state(ARMING);
+    my_msgs__srv__SetAltitude_Response r1 = call_set_altitude(0.5f);
     TEST_ASSERT_TRUE(r1.accepted);
-    my_msgs__srv__Takeoff_Response r2 = call_takeoff(3.0f);
+    my_msgs__srv__SetAltitude_Response r2 = call_set_altitude(3.0f);
     TEST_ASSERT_TRUE(r2.accepted);
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 3.0f, get_take_off_alt());
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 3.0f, get_target_altitude());
     rosidl_runtime_c__String__fini(&r1.reason);
     rosidl_runtime_c__String__fini(&r2.reason);
 }
 
 /* [BUG] The range check uses "alt < MIN || alt > MAX", which is false for
  * NaN: a NaN altitude is accepted and the controller gets a NaN target. */
-void test_takeoff_nan_altitude_is_rejected(void) {
+void test_set_altitude_nan_altitude_is_rejected(void) {
     set_state(ARMING);
-    my_msgs__srv__Takeoff_Response r = call_takeoff(NAN);
+    my_msgs__srv__SetAltitude_Response r = call_set_altitude(NAN);
     TEST_ASSERT_FALSE_MESSAGE(r.accepted, "NaN must not be a valid altitude");
     TEST_ASSERT_FALSE(get_take_off_ready());
     rosidl_runtime_c__String__fini(&r.reason);
 }
 
-void test_takeoff_ready_is_read_only_once(void) {
+void test_set_altitude_ready_is_read_only_once(void) {
     set_state(ARMING);
-    my_msgs__srv__Takeoff_Response r = call_takeoff(1.0f);
+    my_msgs__srv__SetAltitude_Response r = call_set_altitude(1.0f);
     TEST_ASSERT_TRUE(get_take_off_ready());
     TEST_ASSERT_FALSE(get_take_off_ready());
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, get_take_off_alt());   /* the altitude stays */
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, get_target_altitude());   /* the altitude stays */
     rosidl_runtime_c__String__fini(&r.reason);
 }
 
-void test_takeoff_new_request_changes_the_altitude(void) {
+void test_set_altitude_new_request_changes_the_altitude(void) {
     set_state(ARMING);
-    my_msgs__srv__Takeoff_Response r1 = call_takeoff(1.0f);
-    my_msgs__srv__Takeoff_Response r2 = call_takeoff(2.0f);
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 2.0f, get_take_off_alt());
+    my_msgs__srv__SetAltitude_Response r1 = call_set_altitude(1.0f);
+    my_msgs__srv__SetAltitude_Response r2 = call_set_altitude(2.0f);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 2.0f, get_target_altitude());
     rosidl_runtime_c__String__fini(&r1.reason);
     rosidl_runtime_c__String__fini(&r2.reason);
 }
 
-void test_takeoff_rejected_request_keeps_the_previous_one(void) {
+void test_set_altitude_rejected_request_keeps_the_previous_one(void) {
     set_state(ARMING);
-    my_msgs__srv__Takeoff_Response r1 = call_takeoff(1.0f);
-    my_msgs__srv__Takeoff_Response r2 = call_takeoff(9.0f);
+    my_msgs__srv__SetAltitude_Response r1 = call_set_altitude(1.0f);
+    my_msgs__srv__SetAltitude_Response r2 = call_set_altitude(9.0f);
     TEST_ASSERT_TRUE(get_take_off_ready());
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, get_take_off_alt());
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, get_target_altitude());
     rosidl_runtime_c__String__fini(&r1.reason);
     rosidl_runtime_c__String__fini(&r2.reason);
 }
@@ -615,6 +823,7 @@ void test_state_msg_sm_state_values_match_the_enum(void) {
     TEST_ASSERT_EQUAL_INT(EXTERNAL_CONTROL, my_msgs__msg__State__EXTERNAL_CONTROL);
     TEST_ASSERT_EQUAL_INT(LANDING, my_msgs__msg__State__LANDING);
     TEST_ASSERT_EQUAL_INT(DISARMING, my_msgs__msg__State__DISARMING);
+    TEST_ASSERT_EQUAL_INT(EMERGENCY_LANDING, my_msgs__msg__State__EMERGENCY_LANDING);
     TEST_ASSERT_EQUAL_INT(ERROR, my_msgs__msg__State__ERROR);
 }
 
@@ -689,7 +898,7 @@ void test_task_params_subscriber(void) {
     TEST_ASSERT_NOT_NULL(e);
     TEST_ASSERT_EQUAL_STRING("my_msgs/msg/Params", e->type);
     TEST_ASSERT_TRUE(e->has_qos);
-    TEST_ASSERT_EQUAL_INT(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT, e->qos.reliability);
+    TEST_ASSERT_EQUAL_INT(RMW_QOS_POLICY_RELIABILITY_RELIABLE, e->qos.reliability);
     TEST_ASSERT_EQUAL_INT(RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL, e->qos.durability);
     TEST_ASSERT_EQUAL_INT(RMW_QOS_POLICY_HISTORY_KEEP_LAST, e->qos.history);
     TEST_ASSERT_EQUAL_UINT(2, e->qos.depth);
@@ -703,11 +912,11 @@ void test_task_cmd_vel_subscriber(void) {
     TEST_ASSERT_TRUE(e->best_effort);
 }
 
-void test_task_takeoff_service(void) {
+void test_task_set_altitude_service(void) {
     run_ros_task();
-    const mock_ros_entity_t *e = mock_ros_find(MOCK_ROS_SRV, "drone/takeoff_srv");
+    const mock_ros_entity_t *e = mock_ros_find(MOCK_ROS_SRV, "drone/set_altitude");
     TEST_ASSERT_NOT_NULL(e);
-    TEST_ASSERT_EQUAL_STRING("my_msgs/srv/Takeoff", e->type);
+    TEST_ASSERT_EQUAL_STRING("my_msgs/srv/SetAltitude", e->type);
 }
 
 void test_task_land_service(void) {
@@ -717,13 +926,13 @@ void test_task_land_service(void) {
     TEST_ASSERT_EQUAL_STRING("std_srvs/srv/Trigger", e->type);
 }
 
-void test_task_main_timer_is_1_s(void) {
+void test_task_main_timer_is_300_ms(void) {
     run_ros_task();
     bool found = false;
     for (int i = 0; i < mock_ros_entity_count; i++)
         if (mock_ros_entities[i].kind == MOCK_ROS_TIMER && mock_ros_entities[i].timer_cb == timer_callback) {
             found = true;
-            TEST_ASSERT_EQUAL_INT64(RCL_MS_TO_NS(1000), mock_ros_entities[i].period_ns);
+            TEST_ASSERT_EQUAL_INT64(RCL_MS_TO_NS(300), mock_ros_entities[i].period_ns);
         }
     TEST_ASSERT_TRUE(found);
 }
@@ -739,11 +948,11 @@ void test_task_handles_go_to_the_right_callbacks(void) {
     TEST_ASSERT_NOT_NULL(h);
     TEST_ASSERT_EQUAL_PTR(&cmd_vel_msg, h->msg);
     TEST_ASSERT_EQUAL_PTR((void *)cmd_vel_callback, h->callback);
-    h = find_handle(&takeoff_srv);
+    h = find_handle(&set_altitude_srv);
     TEST_ASSERT_NOT_NULL(h);
-    TEST_ASSERT_EQUAL_PTR(&takeoff_req, h->msg);
-    TEST_ASSERT_EQUAL_PTR(&takeoff_res, h->res);
-    TEST_ASSERT_EQUAL_PTR((void *)takeoff_callback, h->callback);
+    TEST_ASSERT_EQUAL_PTR(&set_altitude_req, h->msg);
+    TEST_ASSERT_EQUAL_PTR(&set_altitude_res, h->res);
+    TEST_ASSERT_EQUAL_PTR((void *)set_altitude_callback, h->callback);
     h = find_handle(&land_srv);
     TEST_ASSERT_NOT_NULL(h);
     TEST_ASSERT_EQUAL_PTR(&land_req, h->msg);
@@ -1124,6 +1333,78 @@ void test_sim_motors_timer_waits_for_the_publisher(void) {
 }
 #endif
 
+/* ------------------------------------------------------------------ */
+/*                       LINK WITH THE AGENT                          */
+/* ------------------------------------------------------------------ */
+void test_link_starts_when_the_task_connects(void) {
+    mock_time_us = 5000000;
+    run_ros_task();
+    TEST_ASSERT_TRUE(get_t_last_link() >= 5000000);
+}
+
+/* The ping on demand of ros_test() (CHECKING) also refreshes it */
+void test_link_ros_test_ping_refreshes_it(void) {
+    ping_requested = true;
+    mock_spin_max = 2;
+    mock_time_us = 7000000;
+    mock_run_task(micro_ros_task, NULL, 1000);
+    TEST_ASSERT_EQUAL_INT(1, ping_result);
+    TEST_ASSERT_TRUE(get_t_last_link() >= 7000000);
+}
+
+void test_link_getter_uses_the_mutex(void) {
+    TEST_ASSERT_TRUE(getter_waits_for_the_mutex(thread_t_last_link));
+}
+
+#ifndef CONFIG_SIMULATION_ON
+void test_link_ping_waits_for_its_period(void) {
+    t_last_ping_us = 1000000;
+    link_ping(1000000 + LINK_PING_PERIOD_US - 1);
+    TEST_ASSERT_EQUAL_INT(0, mock_uros_ping_calls);
+    link_ping(1000000 + LINK_PING_PERIOD_US);
+    TEST_ASSERT_EQUAL_INT(1, mock_uros_ping_calls);
+}
+
+/* Short and only 1 attempt: it stops uros_task 100 ms at most */
+void test_link_ping_is_short(void) {
+    link_ping(LINK_PING_PERIOD_US);
+    TEST_ASSERT_EQUAL_INT(LINK_PING_TIMEOUT_MS, mock_uros_ping_timeout_ms);
+    TEST_ASSERT_EQUAL_INT(1, mock_uros_ping_attempts);
+}
+
+void test_link_answered_ping_refreshes_it(void) {
+    t_last_link_us = 0;
+    mock_time_us = 3000000;
+    link_ping(3000000);
+    TEST_ASSERT_TRUE(get_t_last_link() >= 3000000);
+}
+
+void test_link_lost_ping_keeps_the_last_time(void) {
+    t_last_link_us = 1000000;
+    mock_uros_ping_ret = 1; /* No answer */
+    mock_time_us = 3000000;
+    link_ping(3000000);
+    TEST_ASSERT_EQUAL_INT(1, mock_uros_ping_calls);
+    TEST_ASSERT_EQUAL_INT64(1000000, get_t_last_link());
+}
+
+/* The task pings after each spin */
+void test_link_task_pings_in_the_loop(void) {
+    mock_spin_max = 3;
+    mock_time_step_us = LINK_PING_PERIOD_US;
+    mock_run_task(micro_ros_task, NULL, 1000);
+    TEST_ASSERT_TRUE(mock_uros_ping_calls >= 1);
+}
+#else
+/* No ping in simulation: it would stop the motors timer */
+void test_link_sim_task_does_not_ping(void) {
+    mock_spin_max = 3;
+    mock_time_step_us = 500000;
+    mock_run_task(micro_ros_task, NULL, 1000);
+    TEST_ASSERT_EQUAL_INT(0, mock_uros_ping_calls);
+}
+#endif
+
 int main(void) {
     UNITY_BEGIN();
 
@@ -1131,6 +1412,15 @@ int main(void) {
     RUN_TEST(test_params_apply_sets_every_parameter);
     RUN_TEST(test_params_apply_without_new_message_does_nothing);
     RUN_TEST(test_params_last_message_wins);
+    RUN_TEST(test_params_pending_messages_are_merged);
+    RUN_TEST(test_params_merge_last_value_of_a_field_wins);
+    RUN_TEST(test_params_merge_starts_again_after_applying);
+    RUN_TEST(test_params_merge_keeps_a_bad_value_to_reject_it);
+    RUN_TEST(test_params_unfilled_fields_do_not_change);
+    RUN_TEST(test_params_one_gain_only_changes_that_gain);
+    RUN_TEST(test_params_gains_and_odometry_are_applied);
+    RUN_TEST(test_params_out_of_range_rejects_the_whole_message);
+    RUN_TEST(test_params_nan_and_out_of_range_are_rejected);
     RUN_TEST(test_params_timer_applies_them_in_CHECKING);
     RUN_TEST(test_params_timer_does_not_apply_them_while_flying);
 
@@ -1144,21 +1434,24 @@ int main(void) {
     RUN_TEST(test_cmdvel_can_be_read_many_times);
     RUN_TEST(test_cmdvel_new_message_replaces_the_old_one);
     RUN_TEST(test_cmdvel_clear_forgets_the_command);
-    RUN_TEST(test_cmdvel_take_off_alt_getter_uses_the_mutex);
+    RUN_TEST(test_cmdvel_target_altitude_getter_uses_the_mutex);
     RUN_TEST(test_cmdvel_getter_uses_the_mutex);
     RUN_TEST(test_cmdvel_clear_uses_the_mutex);
 
-    RUN_TEST(test_takeoff_default_not_ready_and_min_altitude);
-    RUN_TEST(test_takeoff_limits_are_0_5_and_3_m);
-    RUN_TEST(test_takeoff_accepted_in_ARMING);
-    RUN_TEST(test_takeoff_rejected_in_ERROR);
-    RUN_TEST(test_takeoff_rejected_in_every_state_except_ARMING);
-    RUN_TEST(test_takeoff_rejected_out_of_range);
-    RUN_TEST(test_takeoff_limits_are_accepted);
-    RUN_TEST(test_takeoff_nan_altitude_is_rejected);
-    RUN_TEST(test_takeoff_ready_is_read_only_once);
-    RUN_TEST(test_takeoff_new_request_changes_the_altitude);
-    RUN_TEST(test_takeoff_rejected_request_keeps_the_previous_one);
+    RUN_TEST(test_set_altitude_default_not_ready_and_min_altitude);
+    RUN_TEST(test_set_altitude_limits_are_0_5_and_3_m);
+    RUN_TEST(test_set_altitude_accepted_in_ARMING);
+    RUN_TEST(test_set_altitude_rejected_in_ERROR);
+    RUN_TEST(test_set_altitude_rejected_when_not_armed_or_flying);
+    RUN_TEST(test_set_altitude_changes_the_altitude_in_flight);
+    RUN_TEST(test_set_altitude_in_flight_does_not_take_off_again);
+    RUN_TEST(test_set_altitude_in_flight_out_of_range_keeps_the_altitude);
+    RUN_TEST(test_set_altitude_rejected_out_of_range);
+    RUN_TEST(test_set_altitude_limits_are_accepted);
+    RUN_TEST(test_set_altitude_nan_altitude_is_rejected);
+    RUN_TEST(test_set_altitude_ready_is_read_only_once);
+    RUN_TEST(test_set_altitude_new_request_changes_the_altitude);
+    RUN_TEST(test_set_altitude_rejected_request_keeps_the_previous_one);
 
     RUN_TEST(test_land_default_not_ready);
     RUN_TEST(test_land_accepted_while_flying);
@@ -1194,9 +1487,9 @@ int main(void) {
     RUN_TEST(test_task_state_message_is_prepared);
     RUN_TEST(test_task_params_subscriber);
     RUN_TEST(test_task_cmd_vel_subscriber);
-    RUN_TEST(test_task_takeoff_service);
+    RUN_TEST(test_task_set_altitude_service);
     RUN_TEST(test_task_land_service);
-    RUN_TEST(test_task_main_timer_is_1_s);
+    RUN_TEST(test_task_main_timer_is_300_ms);
     RUN_TEST(test_task_handles_go_to_the_right_callbacks);
     RUN_TEST(test_task_every_entity_is_in_the_executor);
     RUN_TEST(test_task_executor_has_enough_handles);
@@ -1242,6 +1535,19 @@ int main(void) {
     RUN_TEST(test_sim_motors_timer_publishes_each_command_once);
     RUN_TEST(test_sim_motors_timer_nothing_new_nothing_published);
     RUN_TEST(test_sim_motors_timer_waits_for_the_publisher);
+#endif
+
+    RUN_TEST(test_link_starts_when_the_task_connects);
+    RUN_TEST(test_link_ros_test_ping_refreshes_it);
+    RUN_TEST(test_link_getter_uses_the_mutex);
+#ifndef CONFIG_SIMULATION_ON
+    RUN_TEST(test_link_ping_waits_for_its_period);
+    RUN_TEST(test_link_ping_is_short);
+    RUN_TEST(test_link_answered_ping_refreshes_it);
+    RUN_TEST(test_link_lost_ping_keeps_the_last_time);
+    RUN_TEST(test_link_task_pings_in_the_loop);
+#else
+    RUN_TEST(test_link_sim_task_does_not_ping);
 #endif
 
     return UNITY_END();

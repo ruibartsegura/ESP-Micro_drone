@@ -88,10 +88,11 @@ imu_sim_SRC              := test_imu.c
 imu_sim_EXTRA            := $(STATE) $(MPU)
 imu_sim_FLAGS            := $(SIM)
 attitude_controller_SRC  := test_attitude_controller.c
-attitude_controller_EXTRA:= $(STATE)
+attitude_controller_EXTRA:= $(STATE) $(PARAMS)
 tuning_SRC               := test_tuning.c
+tuning_EXTRA             := $(PARAMS)
 odometry_SRC             := test_odometry.c
-odometry_EXTRA           := $(STATE) $(QUAT)
+odometry_EXTRA           := $(STATE) $(QUAT) $(PARAMS)
 # quaternions.c -> state.h uses int64_t without <stdint.h> (newlib math.h has it, glibc not)
 odometry_FLAGS           := -include stdint.h
 system_hw_SRC            := test_system.c

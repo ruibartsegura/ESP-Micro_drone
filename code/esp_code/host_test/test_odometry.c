@@ -6,9 +6,9 @@
  * Description:
  *   Unit tests for odometry_estimator.c (host, no hardware). They check the
  *   init, the task and estimate_odom(): orientation with the Madgwick filter
- *   (quaternions.c), horizontal velocity integrating the acceleration in
- *   world axes (leaky integration, V_LEAK_TAU), vertical velocity from the
- *   attitude controller (get_vel_z()) and the position.
+ *   (quaternions.c), horizontal velocity from the rotor drag in world axes
+ *   (v_body = -a_body / K_DRAG, only in flight, low pass TAU_VEL), vertical
+ *   velocity from the attitude controller (get_vel_z()) and the position.
  *
  *   The real state.c and quaternions.c are linked. get_vel_z()
  *   (attitude_controller.c) is mocked.
@@ -56,11 +56,21 @@ float get_vel_z() { return vel_z_ret; }
 /* ------------------------------------------------------------------ */
 #define DT_NS 10000000LL   /* 10 ms, period of the task */
 
-/* Velocity after one step of acc_g (in g). The Madgwick filter takes a bit
- * of a constant acceleration as tilt (it cannot tell them apart), so the
- * tests allow a 3 % error in one step. */
-#define ONE_STEP_VEL(acc_g) ((acc_g) * K_G * DT_NS / 1e9f)
-#define ONE_STEP_TOL(acc_g) (0.03f * fabsf(ONE_STEP_VEL(acc_g)))
+/* Default rotor drag (parameters.c, menuconfig x1000) */
+#define K_DRAG (CONFIG_K_DRAG / 1000.0f)
+
+/* Velocity (m/s) that the drag model gives for a body acceleration in g. */
+#define DRAG_VEL(acc_g) (-(acc_g) * K_G / K_DRAG)
+
+/* Part of the error of the velocity corrected by the low pass in one step. */
+#define BETA_STEP ((DT_NS / 1e9f) / (TAU_VEL + DT_NS / 1e9f))
+
+/* Enough steps for the low pass to converge (10 TAU_VEL). */
+#define SETTLE_STEPS 100
+
+/* The Madgwick filter takes a bit of a constant acceleration as tilt, so
+ * the tests allow an error of 3 %. */
+#define VEL_TOL(v) (0.03f * fabsf(v))
 
 static int64_t t_now;
 
@@ -196,56 +206,88 @@ void test_odom_vel_z_comes_from_the_attitude_controller(void) {
     TEST_ASSERT_EQUAL_FLOAT(-0.25f, vel_z);
 }
 
-void test_odom_forward_acceleration_gives_forward_velocity(void) {
-    set_acc_lin(0.1f, 0, 1.0f);   /* +0.1 g forward */
-    odom_step();
-    vec3_t v;
-    get_vel_lin(&v);
-    TEST_ASSERT_FLOAT_WITHIN(ONE_STEP_TOL(0.1f), ONE_STEP_VEL(0.1f), v.x);
-    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.0f, v.y);
+/* Drag: flying forward the acceleration is backwards. */
+void test_odom_forward_drag_gives_forward_velocity(void) {
+    set_sm_state(HOVERING);
+    set_acc_lin(-0.01f, 0, 1.0f);
+    for (int i = 0; i < SETTLE_STEPS; i++) odom_step();
+    TEST_ASSERT_TRUE(DRAG_VEL(-0.01f) > 0.0f);
+    TEST_ASSERT_FLOAT_WITHIN(VEL_TOL(DRAG_VEL(-0.01f)), DRAG_VEL(-0.01f), vel_x);
+    TEST_ASSERT_FLOAT_WITHIN(VEL_TOL(DRAG_VEL(-0.01f)), 0.0f, vel_y);
 }
 
-void test_odom_lateral_acceleration_gives_lateral_velocity(void) {
-    set_acc_lin(0, -0.1f, 1.0f);
-    odom_step();
-    vec3_t v;
-    get_vel_lin(&v);
-    TEST_ASSERT_FLOAT_WITHIN(ONE_STEP_TOL(-0.1f), ONE_STEP_VEL(-0.1f), v.y);
-    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.0f, v.x);
+void test_odom_lateral_drag_gives_lateral_velocity(void) {
+    set_sm_state(HOVERING);
+    set_acc_lin(0, 0.01f, 1.0f);
+    for (int i = 0; i < SETTLE_STEPS; i++) odom_step();
+    TEST_ASSERT_FLOAT_WITHIN(VEL_TOL(DRAG_VEL(0.01f)), DRAG_VEL(0.01f), vel_y);
+    TEST_ASSERT_FLOAT_WITHIN(VEL_TOL(DRAG_VEL(0.01f)), 0.0f, vel_x);
 }
 
-void test_odom_velocity_is_integrated(void) {
-    /* 0.1 g during 100 ms -> 0.0981 m/s. The Madgwick filter slowly takes
-     * the constant acceleration as tilt, so it gives a bit less (~9 %). */
-    set_acc_lin(0.1f, 0, 1.0f);
+/* It is not integrated: the velocity does not jump, it follows the low pass. */
+void test_odom_velocity_follows_the_low_pass(void) {
+    set_sm_state(HOVERING);
+    set_acc_lin(-0.01f, 0, 1.0f);
+    odom_step();
+    float expected = BETA_STEP * DRAG_VEL(-0.01f);
+    TEST_ASSERT_FLOAT_WITHIN(VEL_TOL(expected), expected, vel_x);
+}
+
+/* A constant acceleration gives a constant velocity, it does not drift. */
+void test_odom_velocity_does_not_drift(void) {
+    set_sm_state(HOVERING);
+    set_acc_lin(-0.002f, 0, 1.0f);
+    for (int i = 0; i < 2000; i++) odom_step();   /* 20 s */
+    TEST_ASSERT_TRUE(fabsf(vel_x) <= fabsf(DRAG_VEL(0.002f)) * 1.05f);
+}
+
+/* The drag is only used in these states. */
+void test_odom_drag_is_used_in_the_flight_states(void) {
+    const sm_states_t flying[] = { TAKING_OFF, HOVERING, EXTERNAL_CONTROL, LANDING,
+                                  EMERGENCY_LANDING };
+    for (unsigned i = 0; i < sizeof flying / sizeof flying[0]; i++) {
+        set_sm_state(flying[i]);
+        vel_x = 0.0f;
+        set_acc_lin(-0.01f, 0, 1.0f);
+        odom_step();
+        TEST_ASSERT_TRUE(vel_x > 0.0f);
+    }
+}
+
+/* On the ground the accelerometer sees the gravity of the tilt, not drag. */
+void test_odom_on_the_ground_the_acceleration_is_ignored(void) {
+    set_sm_state(ARMING);
+    set_acc_lin(-0.1f, 0.1f, 1.0f);
+    for (int i = 0; i < SETTLE_STEPS; i++) odom_step();
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, vel_x);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, vel_y);
+}
+
+/* Out of flight the velocity goes back to 0 with the low pass. */
+void test_odom_on_the_ground_the_velocity_goes_to_0(void) {
+    set_sm_state(ARMING);
+    vel_x = 1.0f;
+    vel_y = -1.0f;
     for (int i = 0; i < 10; i++) odom_step();
-    TEST_ASSERT_FLOAT_WITHIN(0.15f * 0.0981f, 0.1f * K_G * 0.1f, vel_x);
+    float expected = powf(1.0f - BETA_STEP, 10);
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, expected, vel_x);
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, -expected, vel_y);
 }
 
-/* The acceleration is rotated to world axes: with the drone turned 90 deg
- * in yaw, "forward" of the drone is +Y of the world. */
-void test_odom_acceleration_is_rotated_with_the_yaw(void) {
+/* The velocity is rotated to world axes: with the drone turned 90 deg in
+ * yaw, "forward" of the drone is +Y of the world. */
+void test_odom_velocity_is_rotated_with_the_yaw(void) {
+    set_sm_state(HOVERING);
     q = quat_yaw(90.0f);
-    set_acc_lin(0.1f, 0, 1.0f);
+    set_acc_lin(-0.01f, 0, 1.0f);
     odom_step();
-    TEST_ASSERT_FLOAT_WITHIN(ONE_STEP_TOL(0.1f), ONE_STEP_VEL(0.1f), vel_y);
-    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.0f, vel_x);
-}
-
-/* Tilted and still: the gravity seen by the accelerometer is not a
- * horizontal acceleration once it is rotated to world axes. Without the
- * rotation it would be sin(10) g = 1.7 m/s after 1 s; the Madgwick step
- * (BETA * dt) makes q oscillate a bit, so a few mm/s are allowed. */
-void test_odom_tilted_and_still_does_not_move(void) {
-    float r = RAD(10.0f);
-    q.w = cosf(r / 2); q.x = sinf(r / 2); q.y = 0; q.z = 0;   /* roll 10 deg */
-    set_acc_lin(0, sinf(r), cosf(r));
-    for (int i = 0; i < 100; i++) odom_step();
-    TEST_ASSERT_FLOAT_WITHIN(0.02f, 0.0f, vel_x);
-    TEST_ASSERT_FLOAT_WITHIN(0.02f, 0.0f, vel_y);
+    float expected = BETA_STEP * DRAG_VEL(-0.01f);
+    TEST_ASSERT_FLOAT_WITHIN(VEL_TOL(expected), expected, vel_y);
+    TEST_ASSERT_FLOAT_WITHIN(VEL_TOL(expected), 0.0f, vel_x);
 }
 
 void test_odom_first_sample_long_dt_is_ignored(void) {
+    set_sm_state(HOVERING);
     last_t_imu = 0;   /* after boot */
     set_acc_lin(0.5f, 0.5f, 1.0f);
     odom_step();
@@ -253,47 +295,28 @@ void test_odom_first_sample_long_dt_is_ignored(void) {
     TEST_ASSERT_EQUAL_FLOAT(0.0f, vel_y);
 }
 
-void test_odom_zero_dt_does_not_integrate(void) {
+void test_odom_zero_dt_does_not_change_the_velocity(void) {
+    set_sm_state(HOVERING);
     set_acc_lin(0.5f, 0.5f, 1.0f);
     estimate_odom();   /* same IMU time */
     TEST_ASSERT_EQUAL_FLOAT(0.0f, vel_x);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, vel_y);
 }
 
-/* The position accumulates the velocity. Still, the velocity forgets
- * with V_LEAK_TAU: 1 m/s during 1 s moves tau * (1 - e^(-1 / tau)) m. */
+/* The position integrates the velocity. */
 void test_odom_constant_velocity_moves_the_position(void) {
-    vel_x = 1.0f;
+    set_sm_state(HOVERING);
+    float v = DRAG_VEL(-0.01f);
+    vel_x = v;
+    set_acc_lin(-0.01f, 0, 1.0f);
     for (int i = 0; i < 100; i++) odom_step();   /* 100 x 10 ms = 1 s */
     vec3_t p;
     get_position(&p);
-    float expected = V_LEAK_TAU * (1.0f - expf(-1.0f / V_LEAK_TAU));
-    TEST_ASSERT_FLOAT_WITHIN(0.02f, expected, p.x);
+    TEST_ASSERT_FLOAT_WITHIN(VEL_TOL(v), v, p.x);
 }
 
-/* Without acceleration the velocity goes back to 0: after V_LEAK_TAU it
- * keeps 1 / e (37 %). */
-void test_odom_velocity_forgets_with_v_leak_tau(void) {
-    vel_x = 1.0f;
-    vel_y = -1.0f;
-    int n = (int)(V_LEAK_TAU / (DT_NS / 1e9f));
-    for (int i = 0; i < n; i++) odom_step();
-    TEST_ASSERT_FLOAT_WITHIN(0.02f, expf(-1.0f), vel_x);
-    TEST_ASSERT_FLOAT_WITHIN(0.02f, -expf(-1.0f), vel_y);
-}
-
-/* A bias of the accelerometer does not grow without limit: the velocity
- * stays under bias * V_LEAK_TAU (the Madgwick filter also takes part of
- * the bias as tilt, so it can be less). */
-void test_odom_accel_bias_gives_a_limited_velocity(void) {
-    set_acc_lin(0.002f, 0, 1.0f);   /* 0.002 g = 0.02 m/s^2 of bias */
-    for (int i = 0; i < 2000; i++) odom_step();   /* 20 s = 8 tau */
-    TEST_ASSERT_TRUE(fabsf(vel_x) <= 0.002f * K_G * V_LEAK_TAU * 1.05f);
-}
-
-/* [BUG] quaternion_update() needs the gyroscope in rad/s, but the state
- * has it in deg/s and it is passed without conversion: the orientation
- * turns 57.3 times faster. 1 s at 90 deg/s in yaw must give 90 deg. */
+/* quaternion_update() needs the gyroscope in rad/s and the state has it in
+ * deg/s: 1 s at 90 deg/s in yaw must give 90 deg. */
 void test_odom_gyro_is_converted_to_rad_s(void) {
     set_vel_ang(0, 0, 90.0f);   /* deg/s */
     for (int i = 0; i < 100; i++) odom_step();
@@ -316,16 +339,17 @@ int main(void) {
     RUN_TEST(test_odom_level_and_still_keeps_the_identity);
     RUN_TEST(test_odom_still_drone_does_not_move);
     RUN_TEST(test_odom_vel_z_comes_from_the_attitude_controller);
-    RUN_TEST(test_odom_forward_acceleration_gives_forward_velocity);
-    RUN_TEST(test_odom_lateral_acceleration_gives_lateral_velocity);
-    RUN_TEST(test_odom_velocity_is_integrated);
-    RUN_TEST(test_odom_acceleration_is_rotated_with_the_yaw);
-    RUN_TEST(test_odom_tilted_and_still_does_not_move);
+    RUN_TEST(test_odom_forward_drag_gives_forward_velocity);
+    RUN_TEST(test_odom_lateral_drag_gives_lateral_velocity);
+    RUN_TEST(test_odom_velocity_follows_the_low_pass);
+    RUN_TEST(test_odom_velocity_does_not_drift);
+    RUN_TEST(test_odom_drag_is_used_in_the_flight_states);
+    RUN_TEST(test_odom_on_the_ground_the_acceleration_is_ignored);
+    RUN_TEST(test_odom_on_the_ground_the_velocity_goes_to_0);
+    RUN_TEST(test_odom_velocity_is_rotated_with_the_yaw);
     RUN_TEST(test_odom_first_sample_long_dt_is_ignored);
-    RUN_TEST(test_odom_zero_dt_does_not_integrate);
+    RUN_TEST(test_odom_zero_dt_does_not_change_the_velocity);
     RUN_TEST(test_odom_constant_velocity_moves_the_position);
-    RUN_TEST(test_odom_velocity_forgets_with_v_leak_tau);
-    RUN_TEST(test_odom_accel_bias_gives_a_limited_velocity);
     RUN_TEST(test_odom_gyro_is_converted_to_rad_s);
 
     return UNITY_END();

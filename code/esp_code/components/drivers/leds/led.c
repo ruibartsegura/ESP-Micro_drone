@@ -3,6 +3,7 @@
  * Date: 23/05/2026
  * email: rui.bartolome@gmail.com
  *
+ 
  * Description:
  *   Driver for the 4 status LEDs of the drone (ESP built-in, red, green
  *   and blue). The pins come from menuconfig.
@@ -13,7 +14,6 @@
  *   - led_on() / led_off(): turns one LED on or off.
  *   - all_on() / all_off(): turns all the LEDs on or off.
  */
-
 #include <stdbool.h>
 
 #include "led.h"

@@ -35,7 +35,6 @@
 // ritmo se publique por ROS. 100Hz es un buen punto de partida para
 // un Madgwick con MPU6050 en un dron pequeno.
 #define IMU_TASK_PERIOD_MS 5 // 200 Hz, the rate of the attitude controller
-// #define STACK_LOG_EVERY (5000 / IMU_TASK_PERIOD_MS) // Cycles (~5 s)
 
 static bool is_init = false;
 
@@ -105,11 +104,12 @@ static void imu_sample_and_filter(void) {
         ret = mpu6050_read_raw_data(I2C_MASTER_NUM,
                                     &accel_x, &accel_y, &accel_z,
                                     &gyro_x, &gyro_y, &gyro_z, &t_stamp);
+        // If the data is not ok avoid to add this value
         if (ret != ESP_OK) {
-            return; // se conserva el ultimo dato valido, no se pisa con basura
+            return;
         }
 
-        // Convert the data from raw to units(g)
+        // Convert the data from raw to units
         mpu6050_convert_accel(accel_x, accel_y, accel_z, accel_bias,
                             &accel_lin_x, &accel_lin_y, &accel_lin_z);
         mpu6050_convert_gyro(gyro_x, gyro_y, gyro_z, gyro_bias,
@@ -125,20 +125,12 @@ static void imu_sample_and_filter(void) {
 static void imu_task(void *arg) {
     (void)arg;
 
-    // int log_counter = 0;
     static task_period_t period = TASK_PERIOD("imu_task", IMU_TASK_PERIOD_MS);
     TickType_t t_wake = xTaskGetTickCount();
 
     while (1) {
         task_period_tick(&period); // CPU / period log (CONFIG_CPU_STATS_ON)
         imu_sample_and_filter();
-
-        // if (++log_counter >= STACK_LOG_EVERY) {
-            // log_counter = 0;
-            // UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
-            // ESP_LOGI("imu_task", "stack libre (min historico): %u bytes",
-                     // (unsigned)(free_words * sizeof(StackType_t)));
-        // }
 
         // Fixed period (vTaskDelay would add the time of the work). If the
         // task was late, count again from now instead of running to catch up

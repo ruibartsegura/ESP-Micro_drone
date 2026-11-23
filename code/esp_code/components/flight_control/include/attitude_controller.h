@@ -7,10 +7,15 @@
  *   Public interface and data types of the attitude controller.
  *
  * Functions:
+ *   - get_vel_z(): returns the last vertical velocity (used by the odometry).
+ *   - get_h_est(): returns the last estimated height (used by the failsafe).
+ *   - get_last_motor_power(): returns the mean power of the last motor command.
+ *   - reset_h_reached(): clears the flag of target height reached.
  *   - check_h_reached(): returns true if the drone is at the target height.
  *   - control_attitude(): runs one step of the controller.
  *   - init_attitude_controller(): creates the attitude task.
- *   - get_gains() / set_gains(): read / change the gains at runtime.
+ *
+ *   The gains (GAINS, get_gains() / set_gains()) are in parameters.h.
  */
 
 #ifndef ATTITUDE_CONTROLLER_H
@@ -19,6 +24,7 @@
 #include <stdbool.h>
 #include <geometry_msgs/msg/twist.h>
 #include "sdkconfig.h"
+#include "parameters.h" // GAINS, get_gains()
 
 
 typedef struct roll_pitch_yaw {
@@ -35,33 +41,17 @@ typedef struct attitude_target {
 } ATTITUDE_TARGET;
 
 
-// Gains of the controller that can be changed at runtime
-typedef struct gains {
-    float kp_h;        // m error -> motor power
-    float kd_h;        // m error -> motor power
-    float kp_vel;      // m/s error -> target roll / pitch (rad)
-    float kp_angle;    // deg error -> deg/s target
-    float kp_rate;     // deg/s error -> motor power (roll / pitch)
-    float ki_rate;     // integral of the deg/s error (deg) -> motor power
-    float kp_yaw_rate; // deg/s error -> motor power (yaw)
-    float max_rate;    // max target roll/pitch rate (deg/s)
-    float max_pow_rpy; // max power of each roll/pitch/yaw term
-    float base;        // hover throttle
-} GAINS;
-
 float get_vel_z(); // To avoid the calc in odometry
+float get_h_est(void);
+float get_last_motor_power(void);
 
 void reset_h_reached();
 bool check_h_reached();
 
-void get_gains(GAINS *out);
-
-#ifdef CONFIG_GAINS_TUNE_ON
-    void set_gains(const GAINS *in);
-#endif
 void control_attitude();
 
 // Start the task
 void init_attitude_controller();
+bool attitude_controller_test(void); // Check leds
 
 #endif // ATTITUDE_CONTROLLER_H

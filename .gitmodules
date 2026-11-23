@@ -1,0 +1,8 @@
+[submodule "micro_ros_espidf_component"]
+        path = code/esp_code/components/micro_ros_espidf_component
+        url = https://github.com/ruibartsegura/micro_ros_espidf_component.git
+        branch = jazzy
+[submodule "sim_drone"]
+        path = code/ros_ws/src/sim_drone
+        url = https://github.com/ruibartsegura/sim_drone.git
+        branch = main

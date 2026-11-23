@@ -1,6 +1,0 @@
-# Request
-float32 altitude    # Target altitude
----
-# Response
-bool accepted
-string reason       # OK or why was denied

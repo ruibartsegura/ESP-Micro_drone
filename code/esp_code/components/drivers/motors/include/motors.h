@@ -8,7 +8,7 @@
  *
  * Functions:
  *   - arm_motors() / disarm_motors(): allows or blocks the motors.
- *   - motors_init(): configures the PWM timer and channels.
+ *   - init_motors(): configures the PWM timer and channels.
  *   - motors_test(): spins the motors to check them.
  *   - set_motor_speed(): sets the power of the 4 motors.
  *   - motors_stop_all(): stops all the motors.
@@ -32,8 +32,8 @@
 // LEDC configuration
 #define LEDC_TIMER      LEDC_TIMER_0
 #define LEDC_MODE       LEDC_LOW_SPEED_MODE
-#define LEDC_DUTY_RES   LEDC_TIMER_10_BIT   // 0-1023
-#define LEDC_FREQUENCY  20000               // 20 kHz
+#define LEDC_DUTY_RES   LEDC_TIMER_10_BIT // 0-1023
+#define LEDC_FREQUENCY  20000 // 20 kHz
 
 
 #define N_MOTORS 4

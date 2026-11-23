@@ -31,9 +31,36 @@
 #define CONFIG_MOTOR04_PIN 4
 
 /* ---- Flight parameters ---- */
-#define CONFIG_HOVERING_H   50   /* cm */
-#define CONFIG_VEL_MAX      2
+#define CONFIG_VEL_MAX      50   /* cm/s */
 #define CONFIG_LAND_ON_SITE 1
+#define CONFIG_FLIGHT_H_MIN 50   /* cm */
+#define CONFIG_FLIGHT_H_MAX 300  /* cm */
+
+#define CONFIG_IMU_TIMEOUT  300
+#define CONFIG_BARO_TIMEOUT 500
+#define CONFIG_LINK_TIMEOUT 1500
+
+/* ---- Controller (decimal values x1000) ---- */
+#define CONFIG_THROTTLE_BASE_SIM  2378
+#define CONFIG_THROTTLE_BASE_REAL 50
+#define CONFIG_THROTTLE_BASE      2378
+#define CONFIG_ALPHA              98
+#define CONFIG_MAX_TILT_ANGLE     35
+#define CONFIG_MAX_POWER_RATE     200
+#define CONFIG_MAX_POWER_RP       400
+#define CONFIG_MAX_POWER_YAW      150
+#define CONFIG_PITCH_DEVIATION    105
+#define CONFIG_ROLL_DEVIATION     0
+#define CONFIG_KP_H        100000
+#define CONFIG_KD_H        110000
+#define CONFIG_KP_VEL      50
+#define CONFIG_KP_ANGLE    1500
+#define CONFIG_KP_RATE     300
+#define CONFIG_KI_RATE     600
+#define CONFIG_KP_YAW_RATE 3000
+
+/* ---- Odometry (x1000) ---- */
+#define CONFIG_K_DRAG 124
 
 /* ---- Tasks (stack / priority) ---- */
 #define CONFIG_SYSTEM_TASK_STACK   4000

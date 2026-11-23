@@ -1,4 +1,4 @@
 idf_component_register(SRCS "state.c"
                        INCLUDE_DIRS "." "include"
-                       REQUIRES freertos
+                       REQUIRES freertos esp_timer
                        )

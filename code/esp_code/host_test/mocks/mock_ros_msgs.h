@@ -54,9 +54,16 @@ typedef struct {
 } sensor_msgs__msg__FluidPressure;
 
 /* ---- my_msgs ---- */
-typedef struct { float h_max; float v_max; bool land_on_site; } my_msgs__msg__Params;
-typedef struct { float altitude; } my_msgs__srv__Takeoff_Request;
-typedef struct { bool accepted; rosidl_runtime_c__String reason; } my_msgs__srv__Takeoff_Response;
+/* Same fields as Params.msg (default value -1 = do not change) */
+typedef struct {
+    float v_max;
+    float kp_h, kd_h, kp_vel, kp_angle, kp_rate, ki_rate, kp_yaw_rate;
+    float max_rate, max_pow_rp, base, alpha, max_angle, max_pow_yaw, pitch_deviation,
+          roll_deviation;
+    float k_drag;
+} my_msgs__msg__Params;
+typedef struct { float altitude; } my_msgs__srv__SetAltitude_Request;
+typedef struct { bool accepted; rosidl_runtime_c__String reason; } my_msgs__srv__SetAltitude_Response;
 
 /* Same constants as the generated code (anonymous enum, like rosidl) */
 enum {
@@ -68,7 +75,8 @@ enum {
     my_msgs__msg__State__EXTERNAL_CONTROL = 5,
     my_msgs__msg__State__LANDING = 6,
     my_msgs__msg__State__DISARMING = 7,
-    my_msgs__msg__State__ERROR = 8
+    my_msgs__msg__State__EMERGENCY_LANDING = 8,
+    my_msgs__msg__State__ERROR = 9
 };
 typedef struct {
     std_msgs__msg__Header          header;

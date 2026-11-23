@@ -1,0 +1,8 @@
+# ARMING: take off to the altitude. TAKING_OFF / HOVERING / EXTERNAL_CONTROL:
+# change the target altitude in flight
+# Request
+float32 altitude    # Target altitude (m)
+---
+# Response
+bool accepted
+string reason       # OK, Altitude changed or why was denied

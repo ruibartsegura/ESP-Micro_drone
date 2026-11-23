@@ -144,6 +144,19 @@ rmw_ret_t rmw_uros_sync_session(const int timeout_ms) {
     return mock_uros_sync_ret;
 }
 
+/* ---- rmw_microros/rmw_microros.h: ping ---- */
+rmw_ret_t mock_uros_ping_ret;
+int mock_uros_ping_calls;
+int mock_uros_ping_timeout_ms;
+int mock_uros_ping_attempts;
+
+rmw_ret_t rmw_uros_ping_agent(const int timeout_ms, const uint8_t attempts) {
+    mock_uros_ping_calls++;
+    mock_uros_ping_timeout_ms = timeout_ms;
+    mock_uros_ping_attempts = attempts;
+    return mock_uros_ping_ret;
+}
+
 /* ---- rclc ---- */
 rcl_ret_t rclc_support_init_with_options(rclc_support_t *support, int argc, char const *const *argv,
                                          rcl_init_options_t *opts, rcl_allocator_t *alloc) {
@@ -312,6 +325,10 @@ void mock_reset_ros(void) {
     mock_uros_sync_calls = 0;
     mock_uros_sync_timeout_ms = -1;
     mock_uros_sync_ret = 0;
+    mock_uros_ping_ret = 0;
+    mock_uros_ping_calls = 0;
+    mock_uros_ping_timeout_ms = 0;
+    mock_uros_ping_attempts = 0;
     memset(mock_exec_handles, 0, sizeof mock_exec_handles);
     mock_exec_handle_count = 0;
     mock_exec_max_handles = 0;

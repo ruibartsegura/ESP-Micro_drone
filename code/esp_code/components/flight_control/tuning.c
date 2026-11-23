@@ -4,21 +4,23 @@
  * email: rui.bartolome@gmail.com
  *
  * Description:
- *   Tuning task: changes the gains of the attitude controller while the
- *   drone (or the simulation) is running. It reads text lines from the
- *   serial console (USB-CDC, the same cable of idf.py monitor), so it does
- *   not use WiFi or ROS. Just type in the monitor and press Enter:
+ *   Tuning task: changes the parameters (gains of the attitude controller,
+ *   flight and odometry parameters) while the drone (or the simulation) is
+ *   running. It reads text lines from the serial console (USB-CDC, the same
+ *   cable of idf.py monitor), so it does not use WiFi or ROS. Just type in
+ *   the monitor and press Enter:
  *
  *     help                 list of commands
- *     get                  print the current gains
- *     kp_rate 8            change one gain ("kp_rate=8" also works)
- *     reset                go back to the default gains
+ *     get                  print the current parameters
+ *     kp_rate 8            change one parameter ("kp_rate=8" also works)
+ *     reset                go back to the menuconfig values
  *
- *   Gains: kp_h, kd_h, kp_vel, kp_angle, kp_rate, ki_rate, kp_yaw, max_rate,
- *   max_pow, base.
+ *   The names and the allowed ranges are the ones of param_info[]
+ *   (parameters.c), the same of the drone/params ROS topic.
  *
  * Functions:
- *   - print_gains(): logs the current gains.
+ *   - print_params(): logs the current parameters.
+ *   - print_help(): logs the list of commands.
  *   - tuning_parse_line(): runs one command line.
  *   - tuning_task(): FreeRTOS task that reads the console.
  *   - init_tuning(): creates the tuning task.
@@ -37,7 +39,7 @@
 #include <unistd.h>
 
 #include "tuning.h"
-#include "attitude_controller.h"
+#include "parameters.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -51,45 +53,23 @@
 static const char *TAG = "TUNING";
 
 static bool is_init = false;
-static GAINS default_gains;
-
-// Name of each gain, its place in GAINS and the allowed values
-typedef struct {
-    const char *name;
-    size_t offset;
-    float min;
-    float max;
-} GAIN_INFO;
-
-static const GAIN_INFO gain_info[] = {
-    { "kp_h",     offsetof(GAINS, kp_h),        0.0f, 5000.0f },
-    { "kd_h",     offsetof(GAINS, kd_h),        0.0f, 5000.0f },
-    { "kp_vel",   offsetof(GAINS, kp_vel),      0.0f,    1.0f },
-    { "kp_angle", offsetof(GAINS, kp_angle),    0.0f,  100.0f },
-    { "ki_rate",  offsetof(GAINS, ki_rate),     0.0f,  100.0f },
-    { "kp_yaw",   offsetof(GAINS, kp_yaw_rate), 0.0f,  100.0f },
-    { "kp_rate",  offsetof(GAINS, kp_rate),     0.0f,  500.0f },
-    { "max_rate", offsetof(GAINS, max_rate),    0.0f, 2000.0f },
-    { "max_pow",  offsetof(GAINS, max_pow_rpy), 0.0f, 3000.0f },
-    { "base",     offsetof(GAINS, base),        0.0f, 3000.0f },
-};
-#define N_GAINS (sizeof(gain_info) / sizeof(gain_info[0]))
 
 
-static void print_gains(void) {
-    GAINS k;
-    get_gains(&k);
-    ESP_LOGI(TAG, "kp_h=%.3f kd_h=%.3f kp_vel=%.3f kp_angle=%.3f kp_rate=%.3f",
-             k.kp_h, k.kd_h, k.kp_vel, k.kp_angle, k.kp_rate);
-    ESP_LOGI(TAG, "ki_rate=%.3f kp_yaw=%.3f", k.ki_rate, k.kp_yaw_rate);
-    ESP_LOGI(TAG, "max_rate=%.1f max_pow=%.1f base=%.1f",
-             k.max_rate, k.max_pow_rpy, k.base);
+static void print_params(void) {
+    params_t p;
+    get_all_params(&p);
+    for (size_t i = 0; i < n_param_info; i++) {
+        float v = *(const float *)((const char *)&p + param_info[i].offset);
+        ESP_LOGI(TAG, "%-16s = %.4f", param_info[i].name, v);
+    }
 }
 
 static void print_help(void) {
-    ESP_LOGI(TAG, "Commands: help | get | reset | <gain> <value>");
-    ESP_LOGI(TAG, "Gains: kp_h kd_h kp_vel kp_angle kp_rate ki_rate kp_yaw max_rate");
-    ESP_LOGI(TAG, "       max_pow base");
+    ESP_LOGI(TAG, "Commands: help | get | reset | <name> <value>");
+    for (size_t i = 0; i < n_param_info; i++) {
+        ESP_LOGI(TAG, "  %-16s %.3f .. %.3f", param_info[i].name,
+                 param_info[i].min, param_info[i].max);
+    }
     ESP_LOGI(TAG, "Example: \"kp_vel 0.08\"");
 }
 
@@ -118,43 +98,43 @@ bool tuning_parse_line(const char *line) {
         return true;
     }
     if (strcasecmp(name, "get") == 0) {
-        print_gains();
+        print_params();
         return true;
     }
     if (strcasecmp(name, "reset") == 0) {
-        set_gains(&default_gains);
-        print_gains();
+        params_init(); // menuconfig values
+        print_params();
         return true;
     }
 
-    for (size_t i = 0; i < N_GAINS; i++) {
-        if (strcasecmp(name, gain_info[i].name) != 0) {
-            continue;
-        }
-
-        char *end = NULL;
-        float v = value ? strtof(value, &end) : NAN;
-        if (value == NULL || end == value || *end != '\0' || !isfinite(v)
-            || v < gain_info[i].min || v > gain_info[i].max) {
-            ESP_LOGW(TAG, "%s: invalid value (allowed %.1f .. %.1f)",
-                     gain_info[i].name, gain_info[i].min, gain_info[i].max);
-            return false;
-        }
-
-        // Read - change - write, so the other gains are not lost
-        GAINS k;
-        get_gains(&k);
-        float *field = (float *)((char *)&k + gain_info[i].offset);
-        float old = *field;
-        *field = v;
-        set_gains(&k);
-
-        ESP_LOGI(TAG, "%s: %.3f -> %.3f", gain_info[i].name, old, v);
-        return true;
+    const param_info_t *info = params_find(name);
+    if (info == NULL) {
+        ESP_LOGW(TAG, "Unknown command \"%s\" (type help)", name);
+        return false;
     }
 
-    ESP_LOGW(TAG, "Unknown command \"%s\" (type help)", name);
-    return false;
+    char *end = NULL;
+    float v = value ? strtof(value, &end) : NAN;
+    if (value == NULL || end == value || *end != '\0' || !isfinite(v)
+        || v < info->min || v > info->max) {
+        ESP_LOGW(TAG, "%s: invalid value (allowed %.3f .. %.3f)",
+                 info->name, info->min, info->max);
+        return false;
+    }
+
+    // Only this field changes: the others are PARAM_KEEP
+    params_t p;
+    get_all_params(&p);
+    float old = *(const float *)((const char *)&p + info->offset);
+
+    params_keep_all(&p);
+    *(float *)((char *)&p + info->offset) = v;
+    if (params_update(&p) != NULL) {
+        return false;
+    }
+
+    ESP_LOGI(TAG, "%s: %.4f -> %.4f", info->name, old, v);
+    return true;
 }
 
 static void tuning_task(void *arg) {
@@ -163,7 +143,7 @@ static void tuning_task(void *arg) {
     int len = 0;
 
     print_help();
-    print_gains();
+    print_params();
 
     while (1) {
         // read() of 1 byte, not fgetc(): stdio asks the USB-CDC driver for a
@@ -206,7 +186,6 @@ void init_tuning(void) {
     if (is_init) {
         return;
     }
-    get_gains(&default_gains);
 
     xTaskCreate(tuning_task,
         "tuning_task",

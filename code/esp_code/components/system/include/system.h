@@ -12,7 +12,8 @@
  *   - system_test(): checks that all the modules started correctly.
  *   - system_start(): creates the FreeRTOS task that runs the state machine.
  *   - get_attitude(): returns the target attitude (cmd_vel + height).
- *   - check_takeOff_2_hov(): checks if the take-off height has been reached.
+ *   - get_barometer_failing() / get_imu_failing(): failure of the emergency
+ *     landing (none of them = link with the agent lost).
  */
 
 #ifndef SYSTEM_H
@@ -25,21 +26,22 @@
 #include "state.h"
 #include "attitude_controller.h"
 
+// Returns the target attitude (cmd_vel + height).
+ATTITUDE_TARGET get_attitude();
+
+// Initialises all the modules.
 void system_init(void);
 
+// Checks that all the modules started correctly.
 bool system_test(void);
 
-//void system_launch(void);
+// Get if the barometer is failing.
+bool get_barometer_failing(void);
 
-/**
- * @brief Lanza la tarea FreeRTOS que ejecuta la máquina de estados en
- *        bucle (llama a system_launch() repetidamente). Usar esta
- *        función desde app_main(), NO llamar a system_launch() directo
- *        una sola vez, o el estado se quedará congelado en el primer
- *        caso que ejecute.
- */
+// Get if the IMU is failing (emergency landing without stabilization).
+bool get_imu_failing(void);
+
+// Launch the FreeRTOS task, it will execute the state machine.
 void system_start(void);
-
-ATTITUDE_TARGET get_attitude();
 
 #endif //SYSTEM_H

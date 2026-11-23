@@ -10,10 +10,12 @@
  *   armed, and the power is always limited to the maximum value.
  *
  * Functions:
+ *   - limit_power(): limits the power of one motor to [0, max].
+ *   - write_motors(): writes the power to the PWM (or publishes it in simulation).
  *   - arm_motors() / disarm_motors(): allows or blocks the motors.
  *   - set_motor_speed(): sets the power of the 4 motors.
  *   - motors_stop_all(): stops all the motors.
- *   - motors_init(): configures the PWM timer and channels.
+ *   - init_motors(): configures the PWM timer and channels.
  *   - motors_test(): spins the motors to check them.
  */
 
@@ -43,6 +45,10 @@ static volatile bool is_testing = false;
 #else
     #define TEST_POWER  100
     #define MAX_POWER   100
+    #define VEL_MAX_RADS    1500.0
+    #define VEL_HOVER_RADS   600.0
+    #define POWER_HOVER_PCT     45.0
+    #define POWER_MIN_PCT        0.0
 
     static const gpio_num_t motor_gpio[N_MOTORS] = {
         MOTOR_1,
@@ -69,13 +75,29 @@ static double limit_power(double power, double max) {
     return power;
 }
 
+#ifndef CONFIG_SIMULATION_ON
+static double vel_2_percent(double vel) {
+    if (!(vel > 0.0)) return 0.0;
+    if (vel >= VEL_MAX_RADS) return 100.0;
+
+    if (vel <= VEL_HOVER_RADS) {
+        return POWER_MIN_PCT
+             + (POWER_HOVER_PCT - POWER_MIN_PCT) * vel / VEL_HOVER_RADS;
+    }
+    return POWER_HOVER_PCT
+         + (100.0 - POWER_HOVER_PCT)
+           * (vel - VEL_HOVER_RADS) / (VEL_MAX_RADS - VEL_HOVER_RADS);
+}
+#endif
+
 static void write_motors(const double power[N_MOTORS]) {
     #ifdef CONFIG_SIMULATION_ON
         pub_motor_speed(power);
     #else
         const uint32_t max_duty = (1u << LEDC_DUTY_RES) - 1;
         for (int x = 0; x < N_MOTORS; x++) {
-            uint32_t duty = (uint32_t)(power[x] * max_duty / 100.0);
+            double percent = vel_2_percent(power[x]);   // <-- aquí
+            uint32_t duty = (uint32_t)(percent * max_duty / 100.0);
             ledc_set_duty(LEDC_MODE, motor_channel[x], duty);
             ledc_update_duty(LEDC_MODE, motor_channel[x]);
         }
@@ -134,7 +156,7 @@ void init_motors(void) {
                 .speed_mode = LEDC_MODE,
                 .channel    = motor_channel[i],
                 .timer_sel  = LEDC_TIMER,
-                .duty       = 0,     // arranca apagado
+                .duty       = 0, // arranca apagado
                 .hpoint     = 0
             };
             ledc_channel_config(&channel_conf);
@@ -150,24 +172,20 @@ bool motors_test(void) {
     }
     is_testing = true;
 
-    // ESP_LOGI(TAG, "Empieza test");
     double power[N_MOTORS] = {0};
 
     for (int x = 0; x < N_MOTORS; x++) {
-        // ESP_LOGI(TAG, "Motor %d", x);
         for (int vel = 0; vel <= TEST_POWER/2; vel = vel + 50) {
             power[x] = vel;
             write_motors(power);
             vTaskDelay(pdMS_TO_TICKS(150));
         }
-        // ESP_LOGI(TAG, "MAX POWER");
         for (int vel = TEST_POWER/2; vel >= 0; vel = vel - 100) {
             power[x] = vel;
             write_motors(power);
             vTaskDelay(pdMS_TO_TICKS(150));
         }
         power[x] = 0;
-        // ESP_LOGI(TAG, "FINISH MOTOR X");
     }
 
     // Make sure the motors are stopped before finish the test
@@ -175,7 +193,6 @@ bool motors_test(void) {
     vTaskDelay(pdMS_TO_TICKS(150));
 
 
-    // ESP_LOGI(TAG, "Termina test");
     is_testing = false;
     return true;
 }

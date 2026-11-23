@@ -21,11 +21,14 @@
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_timer.h"
 #include "state.h"
 
 static state_t state;
 static volatile int64_t t_stamp_imu; // Time (ns)
 static volatile int64_t t_stamp_h; // Time (ns)
+static volatile int64_t t_last_sample_imu; // Time (us)
+static volatile int64_t t_last_sample_h; // Time (us)
 
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -79,14 +82,20 @@ void set_acc_lin(float ax, float ay, float az) {
 }
 
 void set_time_imu(int64_t t) {
+    int64_t now = esp_timer_get_time();
+
     portENTER_CRITICAL(&s_lock);
     t_stamp_imu = t;
+    t_last_sample_imu = now; // Time of the last sample
     portEXIT_CRITICAL(&s_lock);
 }
 
 void set_time_height(int64_t t) {
+    int64_t now = esp_timer_get_time();
+
     portENTER_CRITICAL(&s_lock);
     t_stamp_h = t;
+    t_last_sample_h = now; // Time of the last sample
     portEXIT_CRITICAL(&s_lock);
 }
 
@@ -136,6 +145,18 @@ void get_time_imu(int64_t *out) {
 void get_time_height(int64_t *out) {
     portENTER_CRITICAL(&s_lock);
     *out = t_stamp_h;
+    portEXIT_CRITICAL(&s_lock);
+}
+
+void get_t_last_sample_imu(int64_t *out) {
+    portENTER_CRITICAL(&s_lock);
+    *out = t_last_sample_imu;
+    portEXIT_CRITICAL(&s_lock);
+}
+
+void get_t_last_sample_h(int64_t *out) {
+    portENTER_CRITICAL(&s_lock);
+    *out = t_last_sample_h;
     portEXIT_CRITICAL(&s_lock);
 }
 

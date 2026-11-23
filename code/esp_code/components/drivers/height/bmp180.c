@@ -14,6 +14,8 @@
  *   - bmp180_init(): checks the chip id and reads the calibration coefficients.
  *   - bmp180_read_raw_temp() / bmp180_read_raw_pressure(): read the raw values.
  *   - bmp180_compute_b5(): computes the B5 value used by both compensations.
+ *   - bmp180_compensate_temperature(): converts B5 into temperature (C).
+ *   - bmp180_compensate_pressure(): converts the raw pressure into Pa using B5.
  *   - bmp180_read_temperature(): returns the compensated temperature (C).
  *   - bmp180_read_pressure(): returns the compensated pressure (Pa).
  *   - bmp180_pressure_to_altitude(): converts pressure to altitude (m).

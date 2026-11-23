@@ -18,7 +18,7 @@ find_package(geometry_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Params.msg"
   "msg/State.msg"
-  "srv/Takeoff.srv"
+  "srv/SetAltitude.srv"
   DEPENDENCIES std_msgs geometry_msgs
 )
 

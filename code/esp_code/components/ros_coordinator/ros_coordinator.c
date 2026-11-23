@@ -8,33 +8,50 @@
  *   over WiFi (UDP), creates the "rui_drone" node and runs the executor in
  *   its own FreeRTOS task. Shared variables are protected with a mutex.
  *     - Publishes:
- *                   drone/state (my_msgs/state) [x,y,z|qx,qy,qz,qw|vx,vy,vz|wx,wy,wz|ax,ay,az]
- *                   drone/odom (my_msgs/state)
+ *                   State: drone/state (my_msgs/state) Current status of the state machine
+ *                   Odometry drone/state (my_msgs/state) [x,y,z|qx,qy,qz,qw|vx,vy,vz|wx,wy,wz|ax,ay,az]
  *     - Subscribes:
- *                   drone/cmd_vel (geometry_msgs/TwistStamped),
- *                   drone/params (my_msgs/Params)
+ *                   drone/cmd_vel (geometry_msgs/msg/twist_stamped)
+ *                   drone/params (my_msgs/msg/params)
  *     - Service:
- *                   drone/takeoff_srv (my_msgs/Takeoff)
- *                   drone/land_srv (my_msgs/Land)
- *   In simulation mode it also subscribes to imu/data and barometer/data
- *   and publishes the motor speeds to /drone/command/motor_speed.
+ *                   drone/set_altitude (my_msgs/srv/set_altitude): take off, or
+ *                   change the altitude in flight
+ *                   drone/land_srv (std_srvs/srv/trigger)
+ *
+ *   In simulation mode, we add:
+ *     - Publishes:
+ *                   drone/command/motor_speed (actuator_msgs/msg/actuators)
+ *     - Subscribes:
+ *                   imu/data (sensor_msgs/msg/imu)
+ *                   barometer/data (sensor_msgs/msg/fluid_pressure)
  *
  * Functions:
- *   - apply_pending_params(): applies the last received parameters.
- *   - param_callback(): saves the parameters received on drone/params.
+ *   - apply_pending_params(): applies the last received parameters (the
+ *     negative fields, PARAM_KEEP, do not change).
+ *   - param_callback(): saves the parameters received on drone/params (it
+ *     merges them with the ones still pending).
  *   - get_cmd_vel(): returns the last velocity command.
+ *   - clear_cmd_vel(): forgets the last velocity command.
  *   - cmd_vel_callback(): saves the velocity received on drone/cmd_vel.
  *   - get_take_off_ready(): returns true if a take-off request was accepted.
- *   - get_take_off_alt(): returns the requested take-off altitude.
- *   - takeoff_callback(): checks a take-off request and answers it.
+ *   - get_target_altitude(): returns the requested target altitude.
+ *   - set_altitude_callback(): takes off (ARMING) or changes the target altitude
+ *     in flight, and answers the request.
+ *   - get_landing_ready(): returns true if a landing request was accepted.
+ *   - land_callback(): checks a landing request and answers it.
  *   - stamp_now(): writes the current ROS time in a message stamp.
  *   - fill_state_msg(): fills the state message from the global state.
  *   - imu_callback(), height_callback(): (simulation) save the sensor data from Gazebo.
- *   - motors_msg_init(), pub_motor_speed(): (simulation) prepare and send the motor speeds.
- *   - timer_callback(): publishes the IMU data periodically.
+ *   - motors_msg_init(), pub_motor_speed(): (simulation) prepare and queue the motor speeds.
+ *   - motors_timer_callback(): (simulation) publishes the last motor speeds.
+ *   - timer_callback(): publishes the state message periodically (and applies
+ *     the pending parameters in CHECKING).
  *   - micro_ros_task(): creates the node, publishers, subscribers, service and executor.
  *   - ros_init(): starts the network interface and the micro-ROS task.
  *   - ros_test(): checks that the module started correctly.
+ *   - link_alive(): saves the time of an answered ping (or of the connection).
+ *   - get_t_last_link(): returns the time of the last answered ping.
+ *   - link_ping(): (real drone) pings the agent every LINK_PING_PERIOD_US.
  */
 
 
@@ -66,16 +83,14 @@
 #include <rmw_microros/timing.h>
 #include <rmw_microros/time_sync.h>
 
-// Msg types
-#include <sensor_msgs/msg/imu.h>
-#include <std_msgs/msg/int32.h>
+// ROS msg types
 #include <geometry_msgs/msg/twist_stamped.h>
 #include <geometry_msgs/msg/pose_stamped.h>
 #include <my_msgs/msg/params.h>
 #include <my_msgs/msg/state.h>
 
 // Services types
-#include <my_msgs/srv/takeoff.h>
+#include <my_msgs/srv/set_altitude.h>
 #include <std_srvs/srv/trigger.h> // For landing
 
 // My includes
@@ -104,12 +119,14 @@
 static const char *TAG = "MICRO_ROS";
 
 // ============================================================
-//                       Parameters
+//                          Parameters
 // ============================================================
 #ifdef CONFIG_SIMULATION_ON
     #include "freertos/queue.h"
     #include <actuator_msgs/msg/actuators.h>
     #include <sensor_msgs/msg/fluid_pressure.h>
+    #include <sensor_msgs/msg/imu.h>
+
     #include "bmp180.h" // To transform the receiving barometer pressure to h(m)
 
     #define N_HANDLERS 8 // 5 Default + 2 for new subs(IMU, Height)
@@ -118,8 +135,8 @@ static const char *TAG = "MICRO_ROS";
     #define N_HANDLERS 5
 #endif
 
-static const float MAX_ALT = 3.0f; // TODO PONER PARAM
-static const float MIN_ALT = 0.5f;
+static const float MAX_ALT = CONFIG_FLIGHT_H_MAX / 100.0f; // cm -> m (menuconfig)
+static const float MIN_ALT = CONFIG_FLIGHT_H_MIN / 100.0f;
 
 #define g 9.81f // Gravity (m/s^2)
 
@@ -147,22 +164,22 @@ static int64_t t_last_vel = -1; // last cmd_vel received
 
 
 // ============================================================
-//                           Params
+//                            Params
 // ============================================================
 my_msgs__msg__Params param_msg;
 static bool params_2_update = false;
 
 
 // ============================================================
-//                          Services
+//                           Services
 // ============================================================
 // Take-off
-rcl_service_t takeoff_srv;
-my_msgs__srv__Takeoff_Request  takeoff_req;
-my_msgs__srv__Takeoff_Response takeoff_res;
+rcl_service_t set_altitude_srv;
+my_msgs__srv__SetAltitude_Request  set_altitude_req;
+my_msgs__srv__SetAltitude_Response set_altitude_res;
 
 static bool take_off_ready = false;
-static float altitude = MIN_ALT;
+static float target_altitude = MIN_ALT;
 
 // Land
 rcl_service_t land_srv;
@@ -173,13 +190,13 @@ static bool land_ready = false;
 
 
 // ============================================================
-//                           Mutex
+//                            Mutex
 // ============================================================
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 
 // ============================================================
-//                  Simulation pubs & subs
+//                    Simulation pubs & subs
 // ============================================================
 #ifdef CONFIG_SIMULATION_ON
     // Subscribers
@@ -190,7 +207,6 @@ static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
     sensor_msgs__msg__FluidPressure h_sub_msg;
 
     // Publishers
-    //#define NUM_MOTORS 4
     static double motors_buf[NUM_MOTORS];
     static char   frame_id_buf[] = "base_link";
 
@@ -207,8 +223,9 @@ static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 
 // ============================================================
-//                         Checker
+//                      State msg checker
 // ============================================================
+// Check if there is a new state defined
 #define CHECK_SM_STATE(s) \
     _Static_assert((int)my_msgs__msg__State__##s == (int)(s), \
     "State.msg & sm_states_t does not match: " #s)
@@ -221,40 +238,111 @@ CHECK_SM_STATE(HOVERING);
 CHECK_SM_STATE(EXTERNAL_CONTROL);
 CHECK_SM_STATE(LANDING);
 CHECK_SM_STATE(DISARMING);
+CHECK_SM_STATE(EMERGENCY_LANDING);
 CHECK_SM_STATE(ERROR);
 static bool is_init = false;
 
 
 // ============================================================
-//                       App parameters
+//                           ROS Test
 // ============================================================
-// Apply parameters if is necessary
+// Pre-flight ping on demand
+static bool ping_requested = false;
+static int  ping_result    = 0; // 0 = pending, 1 = ok, -1 = fail
+
+// Link with the agent: time of the last ping that was answered. The real
+// drone pings every LINK_PING_PERIOD_US also in flight; system.c starts the
+// failsafe if it is too old. Not in simulation: the ping would stop the
+// executor (motors timer) and the IMU timeout already detects a lost link
+static int64_t t_last_link_us = 0;
+
+#ifndef CONFIG_SIMULATION_ON
+    #define LINK_PING_PERIOD_US  500000LL // 500 ms
+    #define LINK_PING_TIMEOUT_MS 100      // Max time that uros_task is stopped
+    static int64_t t_last_ping_us = 0;
+#endif
+
+// ============================================================
+//                        App parameters                       
+// ============================================================
+// Apply parameters if is necessary. The fields that were not filled in the
+// message are -1 (default value of Params.msg) and keep their value. If one
+// value is out of range the whole message is rejected
 void apply_pending_params() {
-    if (params_2_update) {
-        pthread_mutex_lock(&lock);
-
-        set_hovering_h(param_msg.h_max);
-        set_max_velocity(param_msg.v_max);
-        set_land_on_site(param_msg.land_on_site);
-
-        params_2_update = false;
-
+    pthread_mutex_lock(&lock);
+    if (!params_2_update) {
         pthread_mutex_unlock(&lock);
+        return;
+    }
+    my_msgs__msg__Params m = param_msg;
+    params_2_update = false;
+    pthread_mutex_unlock(&lock);
+
+    params_t p = {
+        .flight = {
+            .vel_max = m.v_max,
+        },
+        .gains = {
+            .kp_h            = m.kp_h,
+            .kd_h            = m.kd_h,
+            .kp_vel          = m.kp_vel,
+            .kp_angle        = m.kp_angle,
+            .kp_rate         = m.kp_rate,
+            .ki_rate         = m.ki_rate,
+            .kp_yaw_rate     = m.kp_yaw_rate,
+            .max_rate        = m.max_rate,
+            .max_pow_rp      = m.max_pow_rp,
+            .base            = m.base,
+            .alpha           = m.alpha,
+            .max_angle       = m.max_angle,
+            .max_pow_yaw     = m.max_pow_yaw,
+            .pitch_deviation = m.pitch_deviation,
+            .roll_deviation  = m.roll_deviation,
+        },
+        .odom = {
+            .k_drag = m.k_drag,
+        },
+    };
+
+    const char *bad = params_update(&p);
+    if (bad != NULL) {
+        ESP_LOGW(TAG, "drone/params rejected: %s out of range", bad);
     }
 }
 
+// Params.msg has one float32 for each parameter (the merge goes field by field)
+_Static_assert(sizeof(my_msgs__msg__Params) == sizeof(params_t),
+               "my_msgs/Params must have one float32 for each field of params_t");
+
+// Saves the message until it is applied (CHECKING). If there is already one
+// pending (sent while flying), they are merged: the filled fields of the new
+// one overwrite, the -1 ones keep the pending value. Only runs when a message
+// arrives (18 compares)
 void param_callback(const void *msgin) {
     const my_msgs__msg__Params *new_msg = (const my_msgs__msg__Params *)msgin;
     pthread_mutex_lock(&lock);
-    param_msg = *new_msg;
+    if (!params_2_update) {
+        param_msg = *new_msg;
+    } else {
+        const float *in = (const float *)new_msg;
+        float *pend = (float *)&param_msg;
+        for (size_t i = 0; i < sizeof(param_msg) / sizeof(float); i++) {
+            // Not PARAM_KEEP. NaN / inf also overwrite, so they are rejected later
+            if (!(isfinite(in[i]) && in[i] < 0.0f)) {
+                pend[i] = in[i];
+            }
+        }
+    }
     params_2_update = true;
     pthread_mutex_unlock(&lock);
 }
 
 
 // ============================================================
-//                          CMD_VEL
+//                           CMD_VEL
 // ============================================================
+// Return true and update the var out, if there is a new cmd_vel,
+// if the max_age_ms has passed return false
 bool get_cmd_vel(geometry_msgs__msg__Twist *out, int max_age_ms) {
     pthread_mutex_lock(&lock);
     bool fresh =
@@ -297,58 +385,68 @@ bool get_take_off_ready() {
 }
 
 // Getter altitude of the take off
-float get_take_off_alt() {
+float get_target_altitude() {
     pthread_mutex_lock(&lock);
-    float alt = altitude;
+    float alt = target_altitude;
     pthread_mutex_unlock(&lock);
     return alt;
 }
 
-// Take off callback
-void takeoff_callback(const void *req_msg, void *res_msg) {
-    my_msgs__srv__Takeoff_Request  *takeoff_req =
-        (my_msgs__srv__Takeoff_Request *)req_msg;
+// Take off / altitude callback.
+// - ARMING: takes off to the requested altitude.
+// - TAKING_OFF, HOVERING, EXTERNAL_CONTROL: only changes the target altitude
+//   (system.c reads get_target_altitude() every cycle). take_off_ready is not
+//   set, so it does not take off again after the next landing.
+// - Other states: rejected.
+void set_altitude_callback(const void *req_msg, void *res_msg) {
+    my_msgs__srv__SetAltitude_Request  *req =
+        (my_msgs__srv__SetAltitude_Request *)req_msg;
 
-    my_msgs__srv__Takeoff_Response *takeoff_res =
-        (my_msgs__srv__Takeoff_Response *)res_msg;
+    my_msgs__srv__SetAltitude_Response *res =
+        (my_msgs__srv__SetAltitude_Response *)res_msg;
 
     sm_states_t state;
     get_sm_state(&state);
 
-    // Check drone state.
-    // Just accept the order when the drone is armed and waiting to take off
+    // Check drone state
+    bool take_off = (state == ARMING);
+    bool flying = (state == TAKING_OFF || state == HOVERING
+                   || state == EXTERNAL_CONTROL);
+
     if (state == ERROR) { // Error state
-        takeoff_res->accepted = false;
-        rosidl_runtime_c__String__assign(&takeoff_res->reason, "Status error");
+        res->accepted = false;
+        rosidl_runtime_c__String__assign(&res->reason, "Status error");
         return;
-    } else if (state != ARMING) { // Not Arming
-        takeoff_res->accepted = false;
-        rosidl_runtime_c__String__assign(&takeoff_res->reason, "Not armed");
+    } else if (!take_off && !flying) { // Not armed and not flying
+        res->accepted = false;
+        rosidl_runtime_c__String__assign(&res->reason, "Not armed");
         return;
     }
 
     // Check requested altitude
-    if (isnan(takeoff_req->altitude)
-        || takeoff_req->altitude < MIN_ALT
-        || takeoff_req->altitude > MAX_ALT) {
-        takeoff_res->accepted = false;
-        rosidl_runtime_c__String__assign(&takeoff_res->reason, "Invalid altitude");
+    if (isnan(req->altitude)
+        || req->altitude < MIN_ALT
+        || req->altitude > MAX_ALT) {
+        res->accepted = false;
+        rosidl_runtime_c__String__assign(&res->reason, "Invalid altitude");
         return;
     }
 
-    // Take off -> ready
     pthread_mutex_lock(&lock);
-    take_off_ready = true;
-    altitude = takeoff_req->altitude;
+    target_altitude = req->altitude;
+    if (take_off) {
+        take_off_ready = true; // Take off -> ready
+    }
     pthread_mutex_unlock(&lock);
 
-    takeoff_res->accepted = true;
-    rosidl_runtime_c__String__assign(&takeoff_res->reason, "OK");
+    res->accepted = true;
+    rosidl_runtime_c__String__assign(&res->reason,
+                                     take_off ? "OK" : "Altitude changed");
 }
 
 
 // ============================================================
-//                           Land
+//                             Land
 // ============================================================
 // Getter if the landing is ready
 bool get_landing_ready() {
@@ -361,8 +459,8 @@ bool get_landing_ready() {
 
 // Take off callback
 void land_callback(const void * req_msg, void * res_msg) {
-    std_srvs__srv__Trigger_Request  * land_req =
-        (std_srvs__srv__Trigger_Request *)req_msg;
+    // std_srvs__srv__Trigger_Request  * land_req =
+    //     (std_srvs__srv__Trigger_Request *)req_msg;
 
     std_srvs__srv__Trigger_Response * land_res =
         (std_srvs__srv__Trigger_Response *)res_msg;
@@ -390,13 +488,8 @@ void land_callback(const void * req_msg, void * res_msg) {
     rosidl_runtime_c__String__assign(&land_res->message, "OK");
 }
 
-
 // ============================================================
-//                         IMU publisher
-// ============================================================
-
-// ============================================================
-//                          ROS time
+//                           ROS time
 // ============================================================
 // Current ROS time in a stamp:
 //   - Simulation: time of the last IMU sample of Gazebo (sim time).
@@ -419,9 +512,7 @@ void stamp_now(builtin_interfaces__msg__Time * stamp) {
 
 
 // Fill state msg
-// All the global state is read at once, so every field is from the same
-// moment. ROS uses SI units (REP 103): the angular velocity goes from deg/s
-// to rad/s and the acceleration from g to m/s^2.
+
 void fill_state_msg(my_msgs__msg__State *out) {
     stamp_now(&out->header.stamp);
 
@@ -454,7 +545,7 @@ void fill_state_msg(my_msgs__msg__State *out) {
 
 
 // ============================================================
-//                    Simulation Subs/Pubs
+//                     Simulation Subs/Pubs
 // ============================================================
 #ifdef CONFIG_SIMULATION_ON
     // Imu Callback
@@ -539,7 +630,7 @@ void fill_state_msg(my_msgs__msg__State *out) {
 
 
 // ============================================================
-//                 Main timer of ROS Coordinator
+//                Main timer of ROS Coordinator
 // ============================================================
 void timer_callback(rcl_timer_t * timer, int64_t last_call_time) {
     RCLC_UNUSED(last_call_time);
@@ -558,10 +649,41 @@ void timer_callback(rcl_timer_t * timer, int64_t last_call_time) {
 
 
 // ============================================================
-//                       Ros task initializer
-//
+//                     Ros task initializer
+// ============================================================
 // Initialize timers, callback...
 // ============================================================
+//                         Link check
+// ============================================================
+static void link_alive(int64_t now_us) {
+    pthread_mutex_lock(&lock);
+    t_last_link_us = now_us;
+    pthread_mutex_unlock(&lock);
+}
+
+int64_t get_t_last_link(void) {
+    pthread_mutex_lock(&lock);
+    int64_t t = t_last_link_us;
+    pthread_mutex_unlock(&lock);
+    return t;
+}
+
+#ifndef CONFIG_SIMULATION_ON
+    // Short timeout and 1 attempt: with the link lost it stops uros_task
+    // LINK_PING_TIMEOUT_MS at most (uros_task does not fly the real drone)
+    static void link_ping(int64_t now_us) {
+        if (now_us - t_last_ping_us < LINK_PING_PERIOD_US) {
+            return;
+        }
+        t_last_ping_us = now_us;
+
+        if (rmw_uros_ping_agent(LINK_PING_TIMEOUT_MS, 1) == RMW_RET_OK) {
+            link_alive(now_us);
+        }
+    }
+#endif
+
+
 void micro_ros_task(void * arg) {
     // Micro ros initialization
     rcl_allocator_t allocator = rcl_get_default_allocator();
@@ -589,6 +711,9 @@ void micro_ros_task(void * arg) {
     #ifndef CONFIG_SIMULATION_ON
         RCSOFTCHECK(rmw_uros_sync_session(TIME_SYNC_TIMEOUT_MS));
         int64_t last_sync_us = esp_timer_get_time();
+        link_alive(last_sync_us); // Connected
+    #else
+        link_alive(esp_timer_get_time()); // Connected
     #endif
 
     // Init main node
@@ -609,7 +734,10 @@ void micro_ros_task(void * arg) {
 
     // QoS params sub
     rmw_qos_profile_t params_qos = rmw_qos_profile_default;
-    params_qos.reliability  = RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT;
+    // Reliable: a lost message over WiFi is sent again by the agent. Only
+    // reliable publishers wait for the ACK; a subscriber does not block the
+    // executor (motors / imu in simulation use the best effort stream)
+    params_qos.reliability  = RMW_QOS_POLICY_RELIABILITY_RELIABLE;
     params_qos.durability   = RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL;
     params_qos.history      = RMW_QOS_POLICY_HISTORY_KEEP_LAST;
     params_qos.depth        = 2;
@@ -629,9 +757,9 @@ void micro_ros_task(void * arg) {
 
     // Init take off service
     RCCHECK(rclc_service_init_default(
-        &takeoff_srv, &node,
-        ROSIDL_GET_SRV_TYPE_SUPPORT(my_msgs, srv, Takeoff),
-        "drone/takeoff_srv"
+        &set_altitude_srv, &node,
+        ROSIDL_GET_SRV_TYPE_SUPPORT(my_msgs, srv, SetAltitude),
+        "drone/set_altitude"
     ));
 
     // Initialitation for simulation pub/sub
@@ -683,8 +811,8 @@ void micro_ros_task(void * arg) {
 
     RCCHECK(rclc_executor_add_timer(&executor, &timer));
 
-    RCCHECK(rclc_executor_add_service(&executor, &takeoff_srv, &takeoff_req,
-        &takeoff_res, takeoff_callback));
+    RCCHECK(rclc_executor_add_service(&executor, &set_altitude_srv, &set_altitude_req,
+        &set_altitude_res, set_altitude_callback));
 
     RCCHECK(rclc_executor_add_service(&executor, &land_srv, &land_req,
         &land_res, land_callback));
@@ -729,19 +857,29 @@ void micro_ros_task(void * arg) {
                 last_sync_us = now_us;
                 RCSOFTCHECK(rmw_uros_sync_session(TIME_SYNC_TIMEOUT_MS));
             }
+
+            link_ping(now_us);
         #endif
 
-        // if (now_us - last_log_us >= 5000000) {
-        //     last_log_us = now_us;
-        //     UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
-        //     #ifdef CONFIG_SIMULATION_ON
-        //         ESP_LOGI(TAG, "alive, stack_min=%u bytes",
-        //                  (unsigned)(free_words * sizeof(StackType_t)));
-        //     #else
-        //         ESP_LOGI(TAG, "alive, stack_min=%u bytes",
-        //                  (unsigned)(free_words * sizeof(StackType_t)));
-        //     #endif
-        // }
+        pthread_mutex_lock(&lock);
+        bool do_ping = ping_requested;
+        pthread_mutex_unlock(&lock);
+
+        if (do_ping) {
+            bool ok = (rmw_uros_ping_agent(200, 3) == RMW_RET_OK);
+            if (ok) {
+                link_alive(esp_timer_get_time());
+            }
+
+            pthread_mutex_lock(&lock);
+            if (ok) {
+                ping_result = 1;
+            } else {
+                ping_result = -1;
+            }
+            ping_requested = false;
+            pthread_mutex_unlock(&lock);
+        }
     }
 }
 
@@ -773,8 +911,26 @@ void ros_init(void) {
 }
 
 bool ros_test(void) {
-    if (!is_init) {
-        return false;
+    if (!is_init) return false;
+
+    pthread_mutex_lock(&lock);
+    ping_result    = 0;
+    ping_requested = true;
+    pthread_mutex_unlock(&lock);
+
+    // spin_some wakes up at most every 250 ms, then the ping takes up to ~600 ms
+    for (int i = 0; i < 100; i++) { // 100 * 10 ms = 1 s max
+        pthread_mutex_lock(&lock);
+        int r = ping_result;
+        pthread_mutex_unlock(&lock);
+
+        if (r != 0) return (r == 1);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
-    return true;
+
+    // uros_task did not answer -> dead task or stuck
+    pthread_mutex_lock(&lock);
+    ping_requested = false;
+    pthread_mutex_unlock(&lock);
+    return false;
 }

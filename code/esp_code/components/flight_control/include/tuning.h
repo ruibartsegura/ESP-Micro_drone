@@ -4,9 +4,10 @@
  * email: rui.bartolome@gmail.com
  *
  * Description:
- *   Tuning task: changes the gains of the attitude controller while the
- *   drone (or the simulation) is running, with text commands on the serial
- *   console (the same USB cable of idf.py monitor, no WiFi).
+ *   Tuning task: changes the parameters of parameters.c (controller gains,
+ *   flight and odometry) while the drone (or the simulation) is running,
+ *   with text commands on the serial console (the same USB cable of
+ *   idf.py monitor, no WiFi).
  *
  * Functions:
  *   - tuning_parse_line(): runs one command ("kp_rate 8", "get", "help"...).

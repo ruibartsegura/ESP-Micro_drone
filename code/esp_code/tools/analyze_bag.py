@@ -61,7 +61,7 @@ G = 9.81
 CMD_EXPIRE = 0.5         # CMD_VEL_EXPIRE_TIME in system.c (s)
 
 SM_STATES = ["INIT", "CHECKING", "ARMING", "TAKING_OFF", "HOVERING",
-             "EXTERNAL_CONTROL", "LANDING", "DISARMING", "ERROR"]   # state.h
+             "EXTERNAL_CONTROL", "LANDING", "DISARMING", "EMERGENCY_LANDING", "ERROR"]   # state.h
 
 
 def read_bag(uri):

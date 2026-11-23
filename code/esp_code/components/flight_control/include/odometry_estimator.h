@@ -7,7 +7,7 @@
  *   Public interface of the odometry estimator.
  *
  * Functions:
- *   - odom_estimator_init(): creates the odometry task.
+ *   - init_odom_estimator(): creates the odometry task.
  *   - odom_estimator_test(): checks that the module started correctly.
  */
 

@@ -1,12 +1,36 @@
+
+# Backups de FreeCAD / KiCad
+*.FCBak
+*.FCStd.*
+**/Backup/
+*-backups/
+*-bak
+fp-info-cache
+*.kicad_prl
+
+# Python
+__pycache__/
+*.pyc
+
+# colcon fuera de ros_ws
+code/esp_code/install/
+code/esp_code/log/
+
 code/esp_code/build/
+code/esp_code/host_test/build/
 
 code/esp_code/sdkconfig.*
 code/esp_code/sdkconfig
 
 code/esp_code/.vscode/
+code/esp_code/CLAUDE.md
 code/esp_code/dependencies.lock
+code/esp_code/log_monitor.txt
 
 code/ros_ws/build
 code/ros_ws/install
 code/ros_ws/log
 
+# Editor y zips
+.vscode/
+code/ros_ws/src/sim_drone.zip

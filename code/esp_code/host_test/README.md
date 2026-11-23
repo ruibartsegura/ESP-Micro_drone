@@ -35,7 +35,7 @@ The summary shows one line per suite:
   - `driver/i2c.h`: a fake bus with a register map for each device (`mock_i2c_regs[addr][reg]`). Hooks can simulate a chip (see the fake BMP180 in `test_bmp180.c`), and `mock_i2c_fail_at` makes a transaction fail.
   - `rcl/`, `rclc/`: every publisher, subscriber, service, timer and executor handle is saved with its name, type and QoS. `mock_rcl_fail_at` makes an init call fail.
   - `rmw_microros/`: session timeout and time sync with the agent (`mock_uros_synced`, `mock_uros_epoch_ns`, `mock_uros_sync_ret`).
-  - Messages (`mock_ros_msgs.h`): structs with the same fields as the generated ones, including `my_msgs` (`Params`, `State`, `Takeoff`). **Update it if you change a message.**
+  - Messages (`mock_ros_msgs.h`): structs with the same fields as the generated ones, including `my_msgs` (`Params`, `State`, `SetAltitude`). **Update it if you change a message.**
   - `sdkconfig.h`: a copy of the real menuconfig values. **Update it if you change menuconfig.**
 - `test_helpers.h`: `TEST_ASSERT_NO_CRASH()` turns a crash (NULL pointer, division by zero) into a normal failure, so the other tests still run.
 - Some suites also link real modules (`state.c`, `parameters.c`, `bmp180.c`, `mpu6050.c`); see the `*_EXTRA` variables in the `Makefile`.

@@ -105,7 +105,8 @@ void test_init_states_have_the_expected_values(void) {
     TEST_ASSERT_EQUAL_INT(5, EXTERNAL_CONTROL);
     TEST_ASSERT_EQUAL_INT(6, LANDING);
     TEST_ASSERT_EQUAL_INT(7, DISARMING);
-    TEST_ASSERT_EQUAL_INT(8, ERROR);
+    TEST_ASSERT_EQUAL_INT(8, EMERGENCY_LANDING);
+    TEST_ASSERT_EQUAL_INT(9, ERROR);
 }
 
 /* ------------------------------------------------------------------ */

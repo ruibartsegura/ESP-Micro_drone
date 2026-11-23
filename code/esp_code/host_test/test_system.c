@@ -58,7 +58,7 @@ static int call_index(const char *name) {
 
 static bool led_test_ret, imu_test_ret, height_test_ret, ros_test_ret, motors_test_ret;
 static bool take_off_ready_ret, landing_ready_ret, h_reached_ret;
-static float take_off_alt_ret;
+static float target_altitude_ret;
 static geometry_msgs__msg__Twist cmd_vel_ret;
 static bool cmd_vel_fresh_ret;      /* get_cmd_vel(): a new cmd_vel has arrived */
 static int  cmd_vel_max_age_ms;     /* last max_age_ms asked to get_cmd_vel() */
@@ -79,17 +79,30 @@ bool motors_test(void)     { log_call("motors_test"); return motors_test_ret; }
 void arm_motors(void)      { log_call("arm_motors"); }
 void disarm_motors(void)   { log_call("disarm_motors"); }
 void motors_stop_all(void) { log_call("motors_stop_all"); }
+static double motor_power_ret[N_MOTORS];
+void set_motor_speed(double power[N_MOTORS]) {
+    log_call("set_motor_speed");
+    memcpy(motor_power_ret, power, sizeof motor_power_ret);
+}
+static float h_est_ret;
+static float last_motor_power_ret;
+float get_h_est(void) { return h_est_ret; }
+float get_last_motor_power(void) { return last_motor_power_ret; }
 void init_attitude_controller(void) { log_call("init_attitude_controller"); }
 void init_tuning(void)     { log_call("init_tuning"); }
 void ros_init(void)        { log_call("ros_init"); }
 bool ros_test(void)        { log_call("ros_test"); return ros_test_ret; }
 bool get_take_off_ready(void) { log_call("get_take_off_ready"); return take_off_ready_ret; }
-float get_take_off_alt(void)  { log_call("get_take_off_alt"); return take_off_alt_ret; }
+float get_target_altitude(void) { log_call("get_target_altitude"); return target_altitude_ret; }
 bool get_landing_ready(void)  { log_call("get_landing_ready"); return landing_ready_ret; }
 bool check_h_reached(void)    { log_call("check_h_reached"); return h_reached_ret; }
 /* Like the real one: the flag is false until the controller sets it again. */
 void reset_h_reached(void)    { log_call("reset_h_reached"); h_reached_ret = false; }
 void init_odom_estimator(void) { log_call("init_odom_estimator"); }
+bool odom_estimator_test(void) { log_call("odom_estimator_test"); return true; }
+bool attitude_controller_test(void) { log_call("attitude_controller_test"); return true; }
+static int64_t t_last_link_ret;
+int64_t get_t_last_link(void) { log_call("get_t_last_link"); return t_last_link_ret; }
 
 bool get_cmd_vel(geometry_msgs__msg__Twist *out, int max_age_ms) {
     log_call("get_cmd_vel");
@@ -107,6 +120,22 @@ static sm_states_t global_sm(void) {
     sm_states_t s;
     get_sm_state(&s);
     return s;
+}
+
+/* Sensors (and link with the agent) with data right now. A test can stop
+ * any of them. */
+static bool imu_alive, baro_alive, link_alive;
+
+static void feed_sensors(void) {
+    if (imu_alive) {
+        set_time_imu(mock_time_us * 1000LL);
+    }
+    if (baro_alive) {
+        set_time_height(mock_time_us * 1000LL);
+    }
+    if (link_alive) {
+        t_last_link_ret = mock_time_us;
+    }
 }
 
 static void go_to(sm_states_t s) {
@@ -129,18 +158,30 @@ void setUp(void) {
     clear_logs();
     led_test_ret = imu_test_ret = height_test_ret = ros_test_ret = motors_test_ret = true;
     take_off_ready_ret = landing_ready_ret = h_reached_ret = false;
-    take_off_alt_ret = 1.0f;
+    target_altitude_ret = 1.0f;
     memset(&cmd_vel_ret, 0, sizeof cmd_vel_ret);
     cmd_vel_fresh_ret = false;
     cmd_vel_max_age_ms = -1;
     blink_led = true;
     t_blink_us = -1;
     mock_time_us = 1000000;   /* 1 s */
+    f_type = SENSORS_OK;
+    f_emergency = SENSORS_OK;
+    t_emergency_us = 0;
+    emergency_time_us = 0;
+    t_imu_cut_us = -1;
+    imu_cut_start = 0.0f;
+    h_est_ret = 0.0f;
+    last_motor_power_ret = 0.0f;
+    memset(motor_power_ret, 0, sizeof motor_power_ret);
+    imu_alive = baro_alive = link_alive = true;
+    feed_sensors();
 }
 
 /* One cycle of the state machine, ms later (esp_timer for the LEDs). */
 static void cycle_after_ms(int ms) {
     mock_time_us += ms * 1000LL;
+    feed_sensors();
     state_machine();
 }
 
@@ -247,11 +288,17 @@ void test_selftest_fails_if_the_barometer_fails(void) {
 }
 #endif
 
-void test_selftest_does_not_spin_the_motors(void) {
-    /* the motor test is disabled: it must not run with the propellers on */
+/* CAUTION: the motor test spins the motors, it runs with every boot. */
+void test_selftest_runs_the_motor_test(void) {
     system_init();
     system_test();
-    TEST_ASSERT_EQUAL_INT(0, called("motors_test"));
+    TEST_ASSERT_EQUAL_INT(1, called("motors_test"));
+}
+
+void test_selftest_fails_if_the_motors_fail(void) {
+    system_init();
+    motors_test_ret = false;
+    TEST_ASSERT_FALSE(system_test());
 }
 
 /* ------------------------------------------------------------------ */
@@ -317,7 +364,7 @@ void test_sm_ARMING_with_takeoff_arms_and_goes_to_TAKING_OFF(void) {
 
 void test_sm_TAKING_OFF_targets_the_takeoff_altitude_without_moving(void) {
     go_to(TAKING_OFF);
-    take_off_alt_ret = 1.5f;
+    target_altitude_ret = 1.5f;
     cmd_vel_ret.linear.x = 3.0;   /* must be ignored */
     cmd_vel_fresh_ret = true;
     state_machine();
@@ -382,7 +429,7 @@ void test_sm_TAKING_OFF_does_not_trust_the_height_of_the_previous_target(void) {
 
 void test_sm_HOVERING_keeps_the_altitude_and_does_not_move(void) {
     go_to(HOVERING);
-    take_off_alt_ret = 0.8f;
+    target_altitude_ret = 0.8f;
     cmd_vel_ret.linear.y = 1.0;   /* not fresh: ignored */
     state_machine();
     ATTITUDE_TARGET t = get_attitude();
@@ -418,7 +465,7 @@ void test_sm_HOVERING_land_has_priority_over_cmd_vel(void) {
 
 void test_sm_EXTERNAL_CONTROL_follows_cmd_vel(void) {
     go_to(EXTERNAL_CONTROL);
-    take_off_alt_ret = 0.8f;
+    target_altitude_ret = 0.8f;
     cmd_vel_ret.linear.x = 0.5;
     cmd_vel_ret.angular.z = 0.2;
     cmd_vel_fresh_ret = true;
@@ -606,7 +653,7 @@ void test_sm_full_flight(void) {
     state_machine();                                 /* ARMING, no takeoff */
     TEST_ASSERT_EQUAL_INT(ARMING, global_sm());
     take_off_ready_ret = true;
-    take_off_alt_ret = 1.2f;
+    target_altitude_ret = 1.2f;
     state_machine();                                 /* ARMING, takeoff */
     TEST_ASSERT_EQUAL_INT(TAKING_OFF, global_sm());
     state_machine();
@@ -665,6 +712,280 @@ void test_task_from_INIT_reaches_ARMING_and_waits(void) {
     TEST_ASSERT_EQUAL_INT(0, called("arm_motors"));
 }
 
+/* ------------------------------------------------------------------ */
+/*                              FAILSAFE                              */
+/* ------------------------------------------------------------------ */
+/* Advances in cycles of 20 ms, like the task. */
+static void run_ms(int ms) {
+    for (int t = 0; t < ms; t += SYSTEM_TASK_PERIOD_MS) {
+        cycle_after_ms(SYSTEM_TASK_PERIOD_MS);
+    }
+}
+
+void test_failsafe_sensors_with_data_do_not_start_it(void) {
+    go_to(HOVERING);
+    run_ms(2000);
+    TEST_ASSERT_EQUAL_INT(HOVERING, state);
+}
+
+void test_failsafe_is_not_used_on_the_ground(void) {
+    go_to(ARMING);
+    imu_alive = baro_alive = false;
+    run_ms(2000);
+    TEST_ASSERT_EQUAL_INT(ARMING, state);
+}
+
+void test_failsafe_take_off_without_recent_samples_starts_it(void) {
+    /* Same as no sample: the last one is older than the timeouts */
+    go_to(TAKING_OFF);
+    mock_time_us += BARO_TIMEOUT_US + 1;
+    state_machine();
+    TEST_ASSERT_EQUAL_INT(EMERGENCY_LANDING, state);
+}
+
+void test_failsafe_baro_waits_for_its_timeout(void) {
+    go_to(HOVERING);
+    baro_alive = false;
+    run_ms(BARO_TIMEOUT_US / 1000 - SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(HOVERING, state);
+    run_ms(2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(EMERGENCY_LANDING, state);
+    TEST_ASSERT_TRUE(get_barometer_failing());
+}
+
+/* h = 2 m, a = 0.5 m/s^2 -> sqrt(2 * 2 / 0.5) + 1 s of margin = 3.83 s */
+void test_failsafe_baro_stops_the_motors_only_when_the_time_elapses(void) {
+    h_est_ret = 2.0f;
+    go_to(HOVERING);
+    baro_alive = false;
+    run_ms(BARO_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(EMERGENCY_LANDING, state);
+
+    run_ms(3700);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(EMERGENCY_LANDING, state, "the motors are stopped in the air");
+    TEST_ASSERT_EQUAL_INT(0, called("disarm_motors"));
+
+    run_ms(300);
+    TEST_ASSERT_EQUAL_INT(ERROR, state);
+    TEST_ASSERT_EQUAL_INT(1, called("disarm_motors"));
+    TEST_ASSERT_EQUAL_INT(1, called("motors_stop_all"));
+    TEST_ASSERT_TRUE(call_index("disarm_motors") < call_index("motors_stop_all"));
+}
+
+void test_failsafe_does_not_trust_a_negative_height(void) {
+    h_est_ret = -3.0f;
+    go_to(HOVERING);
+    baro_alive = false;
+    run_ms(BARO_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT64(1000000, emergency_time_us);
+}
+
+void test_failsafe_ignores_cmd_vel_while_landing(void) {
+    go_to(EXTERNAL_CONTROL);
+    cmd_vel_ret.linear.x = 1.0;
+    cmd_vel_fresh_ret = true;
+    state_machine();
+    TEST_ASSERT_EQUAL_DOUBLE(1.0, get_attitude().cmd_vel.linear.x);
+
+    baro_alive = false;
+    run_ms(BARO_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(EMERGENCY_LANDING, state);
+    TEST_ASSERT_EQUAL_DOUBLE(0.0, get_attitude().cmd_vel.linear.x);
+}
+
+void test_failsafe_imu_ramps_the_same_power_to_0_and_ends_in_ERROR(void) {
+    last_motor_power_ret = 50.0f;
+    go_to(HOVERING);
+    imu_alive = false;
+    run_ms(IMU_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(EMERGENCY_LANDING, state);
+    TEST_ASSERT_FALSE(get_barometer_failing());
+
+    double prev = motor_power_ret[0];
+    TEST_ASSERT_TRUE(prev > 0.0);
+    while (state == EMERGENCY_LANDING) {
+        TEST_ASSERT_TRUE(mock_time_us - t_imu_cut_us < 2 * IMU_CUT_TIME_MS * 1000LL);
+        cycle_after_ms(SYSTEM_TASK_PERIOD_MS);
+        TEST_ASSERT_TRUE(motor_power_ret[0] <= prev);
+        for (int x = 1; x < N_MOTORS; x++) {
+            TEST_ASSERT_EQUAL_DOUBLE(motor_power_ret[0], motor_power_ret[x]);
+        }
+        prev = motor_power_ret[0];
+    }
+    TEST_ASSERT_EQUAL_INT(ERROR, state);
+    TEST_ASSERT_EQUAL_INT(1, called("disarm_motors"));
+    TEST_ASSERT_EQUAL_INT(1, called("motors_stop_all"));
+}
+
+void test_failsafe_imu_failing_while_landing_without_baro_escalates(void) {
+    h_est_ret = 10.0f; /* Long landing */
+    last_motor_power_ret = 40.0f;
+    go_to(HOVERING);
+    baro_alive = false;
+    run_ms(BARO_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_TRUE(get_barometer_failing());
+
+    imu_alive = false;
+    run_ms(IMU_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(IMU_FAILURE, f_type);
+    run_ms(IMU_CUT_TIME_MS + 2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(ERROR, state);
+}
+
+void test_failsafe_is_not_cancelled_if_the_sensor_comes_back(void) {
+    go_to(HOVERING);
+    baro_alive = false;
+    run_ms(BARO_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(EMERGENCY_LANDING, state);
+    baro_alive = true;
+    run_ms(100);
+    TEST_ASSERT_EQUAL_INT(EMERGENCY_LANDING, state);
+    TEST_ASSERT_TRUE(get_barometer_failing());
+}
+
+void test_failsafe_ERROR_is_final_after_it(void) {
+    go_to(HOVERING);
+    baro_alive = false;
+    run_ms(BARO_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS + 1100);
+    TEST_ASSERT_EQUAL_INT(ERROR, state);
+    run_ms(1000);
+    TEST_ASSERT_EQUAL_INT(ERROR, state);
+}
+
+#ifdef CONFIG_SIMULATION_ON
+/* In simulation only the IMU topic can stop while the link is ok: the
+ * motor speeds still arrive, so it must ramp them down, not stop them. */
+void test_failsafe_sim_imu_ramps_and_does_not_stop_at_once(void) {
+    last_motor_power_ret = 50.0f;
+    go_to(HOVERING);
+    imu_alive = false;
+    run_ms(IMU_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(EMERGENCY_LANDING, state);
+    TEST_ASSERT_EQUAL_INT(0, called("motors_stop_all"));
+    TEST_ASSERT_TRUE(called("set_motor_speed") > 0);
+    TEST_ASSERT_TRUE(motor_power_ret[0] > 0.0);
+}
+
+/* No ping in simulation: the link is not checked. */
+void test_failsafe_sim_does_not_check_the_link(void) {
+    go_to(HOVERING);
+    link_alive = false;
+    run_ms(LINK_TIMEOUT_US / 1000 + 1000);
+    TEST_ASSERT_EQUAL_INT(HOVERING, state);
+    TEST_ASSERT_EQUAL_INT(0, called("get_t_last_link"));
+}
+#else
+void test_failsafe_link_waits_for_its_timeout(void) {
+    go_to(HOVERING);
+    link_alive = false;
+    run_ms(LINK_TIMEOUT_US / 1000 - SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(HOVERING, state);
+    run_ms(2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(EMERGENCY_LANDING, state);
+    TEST_ASSERT_EQUAL_INT(LINK_FAILURE, f_type);
+    TEST_ASSERT_FALSE(get_barometer_failing());
+    TEST_ASSERT_FALSE(get_imu_failing());
+}
+
+void test_failsafe_link_is_not_used_on_the_ground(void) {
+    go_to(ARMING);
+    link_alive = false;
+    run_ms(LINK_TIMEOUT_US / 1000 + 1000);
+    TEST_ASSERT_EQUAL_INT(ARMING, state);
+}
+
+/* Lands with the sensors (h = 0, no velocity) and ignores ROS. */
+void test_failsafe_link_lands_to_0_and_ignores_cmd_vel(void) {
+    go_to(EXTERNAL_CONTROL);
+    cmd_vel_ret.linear.x = 1.0;
+    cmd_vel_fresh_ret = true;
+    link_alive = false;
+    run_ms(LINK_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(EMERGENCY_LANDING, state);
+    clear_logs();
+    run_ms(200);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, get_attitude().h);
+    TEST_ASSERT_EQUAL_DOUBLE(0.0, get_attitude().cmd_vel.linear.x);
+    TEST_ASSERT_EQUAL_INT(0, called("set_motor_speed")); /* The controller flies */
+
+    landing_ready_ret = true; /* A land order can not arrive, but it is ignored */
+    run_ms(200);
+    TEST_ASSERT_EQUAL_INT(EMERGENCY_LANDING, state);
+}
+
+void test_failsafe_link_on_the_ground_goes_to_ERROR(void) {
+    h_est_ret = 1.0f;
+    go_to(HOVERING);
+    link_alive = false;
+    run_ms(LINK_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(EMERGENCY_LANDING, state);
+    TEST_ASSERT_EQUAL_INT(0, called("disarm_motors"));
+
+    clear_logs(); /* The log is full after the timeout */
+    h_reached_ret = true; /* The controller says that it is at h = 0 */
+    run_ms(2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(ERROR, state);
+    TEST_ASSERT_EQUAL_INT(1, called("disarm_motors"));
+    TEST_ASSERT_EQUAL_INT(1, called("motors_stop_all"));
+    TEST_ASSERT_TRUE(call_index("disarm_motors") < call_index("motors_stop_all"));
+}
+
+/* h = 1.5 m at 0.15 m/s -> 10 s + 3 s of margin = 13 s */
+void test_failsafe_link_stops_the_motors_if_the_ground_is_not_detected(void) {
+    h_est_ret = 1.5f;
+    go_to(HOVERING);
+    link_alive = false;
+    run_ms(LINK_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT64(13000000, emergency_time_us);
+
+    run_ms(12800);
+    TEST_ASSERT_EQUAL_INT(EMERGENCY_LANDING, state);
+    run_ms(300);
+    TEST_ASSERT_EQUAL_INT(ERROR, state);
+}
+
+/* A worse failure while landing without link starts its own emergency. */
+void test_failsafe_link_landing_escalates_to_baro(void) {
+    h_est_ret = 2.0f;
+    go_to(HOVERING);
+    link_alive = false;
+    run_ms(LINK_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(LINK_FAILURE, f_type);
+
+    baro_alive = false;
+    run_ms(BARO_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_TRUE(get_barometer_failing());
+    TEST_ASSERT_EQUAL_INT(BARO_FAILURE, f_emergency);
+    /* Time of the landing without barometer: sqrt(2 * 2 / 0.5) + 1 s */
+    TEST_ASSERT_INT64_WITHIN(1000, 3828427, emergency_time_us);
+}
+
+void test_failsafe_link_landing_escalates_to_imu(void) {
+    last_motor_power_ret = 40.0f;
+    go_to(HOVERING);
+    link_alive = false;
+    run_ms(LINK_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS);
+    clear_logs(); /* The log is full after the timeout */
+    imu_alive = false;
+    run_ms(IMU_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_TRUE(get_imu_failing());
+    TEST_ASSERT_TRUE(called("set_motor_speed") > 0); /* The power ramp */
+    run_ms(IMU_CUT_TIME_MS + 2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(ERROR, state);
+}
+
+/* The link is the least bad failure: it does not replace the barometer. */
+void test_failsafe_link_does_not_replace_a_baro_failure(void) {
+    h_est_ret = 10.0f;
+    go_to(HOVERING);
+    baro_alive = false;
+    run_ms(BARO_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS);
+    link_alive = false;
+    run_ms(LINK_TIMEOUT_US / 1000 + 2 * SYSTEM_TASK_PERIOD_MS);
+    TEST_ASSERT_EQUAL_INT(BARO_FAILURE, f_type);
+}
+#endif
+
 int main(void) {
     UNITY_BEGIN();
 
@@ -685,7 +1006,8 @@ int main(void) {
     RUN_TEST(test_selftest_fails_if_the_imu_fails);
     RUN_TEST(test_selftest_fails_if_the_barometer_fails);
 #endif
-    RUN_TEST(test_selftest_does_not_spin_the_motors);
+    RUN_TEST(test_selftest_runs_the_motor_test);
+    RUN_TEST(test_selftest_fails_if_the_motors_fail);
 
     RUN_TEST(test_sm_change_state_updates_the_global_state);
     RUN_TEST(test_sm_starts_in_INIT);
@@ -727,6 +1049,31 @@ int main(void) {
     RUN_TEST(test_sm_full_flight_resets_h_reached_in_every_height_change);
     RUN_TEST(test_sm_ERROR_is_final);
     RUN_TEST(test_sm_full_flight);
+
+    RUN_TEST(test_failsafe_sensors_with_data_do_not_start_it);
+    RUN_TEST(test_failsafe_is_not_used_on_the_ground);
+    RUN_TEST(test_failsafe_take_off_without_recent_samples_starts_it);
+    RUN_TEST(test_failsafe_baro_waits_for_its_timeout);
+    RUN_TEST(test_failsafe_baro_stops_the_motors_only_when_the_time_elapses);
+    RUN_TEST(test_failsafe_does_not_trust_a_negative_height);
+    RUN_TEST(test_failsafe_ignores_cmd_vel_while_landing);
+    RUN_TEST(test_failsafe_imu_ramps_the_same_power_to_0_and_ends_in_ERROR);
+    RUN_TEST(test_failsafe_imu_failing_while_landing_without_baro_escalates);
+    RUN_TEST(test_failsafe_is_not_cancelled_if_the_sensor_comes_back);
+    RUN_TEST(test_failsafe_ERROR_is_final_after_it);
+#ifdef CONFIG_SIMULATION_ON
+    RUN_TEST(test_failsafe_sim_imu_ramps_and_does_not_stop_at_once);
+    RUN_TEST(test_failsafe_sim_does_not_check_the_link);
+#else
+    RUN_TEST(test_failsafe_link_waits_for_its_timeout);
+    RUN_TEST(test_failsafe_link_is_not_used_on_the_ground);
+    RUN_TEST(test_failsafe_link_lands_to_0_and_ignores_cmd_vel);
+    RUN_TEST(test_failsafe_link_on_the_ground_goes_to_ERROR);
+    RUN_TEST(test_failsafe_link_stops_the_motors_if_the_ground_is_not_detected);
+    RUN_TEST(test_failsafe_link_landing_escalates_to_baro);
+    RUN_TEST(test_failsafe_link_landing_escalates_to_imu);
+    RUN_TEST(test_failsafe_link_does_not_replace_a_baro_failure);
+#endif
 
     RUN_TEST(test_task_start_creates_the_task_with_the_menuconfig_values);
     RUN_TEST(test_task_start_does_not_init_by_itself);

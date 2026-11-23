@@ -97,20 +97,12 @@ static void h_sample() {
 static void bmp180_task(void *arg) {
     (void)arg;
 
-    // int log_counter = 0;
     static task_period_t period = TASK_PERIOD("height_task", H_TASK_PERIOD_MS);
     TickType_t t_wake = xTaskGetTickCount();
 
     while (1) {
         task_period_tick(&period); // CPU / period log (CONFIG_CPU_STATS_ON)
         h_sample();
-
-        // if (++log_counter >= 500) {
-            // log_counter = 0;
-            // UBaseType_t free_words = uxTaskGetStackHighWaterMark(NULL);
-            // ESP_LOGI(TAG, "stack libre (min historico): %u bytes",
-                     // (unsigned)(free_words * sizeof(StackType_t)));
-        // }
 
         // Fixed period (vTaskDelay would add the time of the work). If the
         // task was late, count again from now instead of running to catch up

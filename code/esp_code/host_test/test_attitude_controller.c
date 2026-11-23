@@ -10,12 +10,13 @@
  *     1. Complementary filter.
  *     2. Attitude estimation: get_roll_pitch() (gyro + accelerometer).
  *     3. Outer loop: cmd_vel_2_RP() (velocity loop: velocity error ->
- *        target roll / pitch, ENU: +pitch to +x, +roll to -y).
+ *        target roll / pitch, ENU: +pitch to +x, +roll to -y) and the
+ *        limit of the cmd_vel velocity to v_max (test_vlim_*).
  *     4. Inner loop: angular rate -> motor mix (roll / pitch / yaw).
  *     5. Height: collective thrust, check_h_reached() and reset_h_reached().
  *     6. Height estimation: get_h() (accelerometer + barometer) and
  *        get_vel_z().
- *     7. Gains: get_gains() / set_gains().
+ *     7. Gains: get_gains() / set_gains() (parameters.c, linked).
  *     8. Task and init.
  *     9. Integral of the roll / pitch rate and gain of the yaw.
  *
@@ -50,7 +51,7 @@
  *     and the barometer and run the controller.
  *   - setUp() / tearDown(): reset the mocks, the controller and the state.
  *   - test_comp_*, test_est_*, test_ext_*, test_int_*, test_h_*, test_hest_*,
- *     test_gains_*, test_task_*, test_i_*.
+ *     test_vlim_*, test_gains_*, test_task_*, test_i_*.
  *   - main(): runs all the tests.
  */
 #include "unity.h"
@@ -61,6 +62,24 @@
 #define MODULE_SRC "../components/flight_control/attitude_controller.c"
 #endif
 #include MODULE_SRC
+
+/* Default gains and limits (parameters.c). They were macros of the
+ * controller; now they are runtime parameters with these menuconfig values. */
+#define ALPHA         (CONFIG_ALPHA / 100.0f)
+#define MAX_ANGLE     (CONFIG_MAX_TILT_ANGLE / 100.0f)
+#define MAX_RATE      ((float)CONFIG_MAX_POWER_RATE)
+#define MAX_POW_RPY   ((float)CONFIG_MAX_POWER_RP)
+#define MAX_POW_YAW   ((float)CONFIG_MAX_POWER_YAW)
+#define THROTTLE_BASE ((float)CONFIG_THROTTLE_BASE)
+#define KP_H          (CONFIG_KP_H / 1000.0f)
+#define KD_H          (CONFIG_KD_H / 1000.0f)
+#define KP_VEL        (CONFIG_KP_VEL / 1000.0f)
+#define KP_ANGLE      (CONFIG_KP_ANGLE / 1000.0f)
+#define KP_RATE       (CONFIG_KP_RATE / 1000.0f)
+#define KI_RATE       (CONFIG_KI_RATE / 1000.0f)
+#define KP_YAW_RATE   (CONFIG_KP_YAW_RATE / 1000.0f)
+#define PITCH_DEVIATION (CONFIG_PITCH_DEVIATION / 10.0f)
+#define ROLL_DEVIATION  (CONFIG_ROLL_DEVIATION / 10.0f)
 
 /* Save the gravity and remove the one letter macro g. */
 static const float K_G = g;
@@ -74,6 +93,11 @@ static double          motors[N_MOTORS];
 static int             motor_calls;
 
 ATTITUDE_TARGET get_attitude() { return mock_target; }
+
+static bool mock_baro_failing;
+bool get_barometer_failing(void) { return mock_baro_failing; }
+static bool mock_imu_failing;
+bool get_imu_failing(void) { return mock_imu_failing; }
 
 void set_motor_speed(double power[N_MOTORS]) {
     memcpy(motors, power, sizeof motors);
@@ -151,7 +175,16 @@ void setUp(void) {
     is_init = false;
     t_h_reached_us = -1;
     baro = 0.0f;
+    mock_baro_failing = false;
+    mock_imu_failing = false;
+    was_flying = false;
+    hover_w_h = 0.0f;
+    emrg_drop = 0.0f;
+    last_motor_power = 0.0f;
     mock_time_us = 1000000;  /* 1 s */
+    /* No velocity limit, so the tests of the velocity loop see the gains
+     * alone. The test_vlim_* tests use the real v_max. */
+    set_max_velocity(1000.0f);
     /* Default gains (a test can change them with set_gains()) */
     if (!default_gains_saved) {
         get_gains(&default_gains);
@@ -192,39 +225,31 @@ void test_comp_blend_value(void) {
 }
 
 void test_comp_alpha_trusts_the_gyro(void) {
-    float a = alpha_of(ATTITUDE_TASK_PERIOD_MS / 1000.0f);
-    TEST_ASSERT_TRUE(a > 0.9f && a < 1.0f);
+    TEST_ASSERT_TRUE(ALPHA > 0.9f && ALPHA < 1.0f);
 }
 
-/* TAU_RP keeps the old filter: ALPHA = 0.98 at 15 ms. */
-void test_comp_alpha_at_15_ms_is_the_old_0_98(void) {
-    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.98f, alpha_of(0.015f));
-}
-
-/* dt = 0 is the same IMU sample again: nothing new, no correction. */
-void test_comp_alpha_of_0_is_1(void) {
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, alpha_of(0.0f));
-}
-
-/* With alpha_of(dt) the accelerometer corrects at the same speed at any
- * frequency: 0.5 s at 200 Hz and at 66 Hz give (almost) the same angle. */
-void test_comp_correction_does_not_depend_on_the_frequency(void) {
-    float r_fast = 0, r_slow = 0, p;
+/* ALPHA is fixed: each cycle corrects (1 - ALPHA) of the error with the
+ * accelerometer, so after n cycles it keeps ALPHA^n of the error. */
+void test_comp_correction_depends_on_the_number_of_cycles(void) {
+    float r = 0, p;
     set_tilt(20.0f, 0.0f);
-    for (int i = 0; i < 100; i++) {          /* 100 x 5 ms */
-        t_now += 5000000LL;
+    for (int i = 0; i < 100; i++) {
+        t_now += DT_NS;
         set_time_imu(t_now);
-        get_roll_pitch(&r_fast, &p);
+        get_roll_pitch(&r, &p);
     }
-    memset(&last_rpy, 0, sizeof last_rpy);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 20.0f * (1.0f - powf(ALPHA, 100)), r);
+}
+
+/* The same IMU sample again does not integrate the gyro (dt = 0), but the
+ * accelerometer still corrects. */
+void test_comp_same_sample_does_not_integrate_the_gyro(void) {
+    float r, p;
+    set_vel_ang(100.0f, 0.0f, 0.0f);
+    set_time_imu(t_now);
     last_rpy.t_stamp = t_now;
-    for (int i = 0; i < 33; i++) {           /* 33 x 15 ms */
-        t_now += 15000000LL;
-        set_time_imu(t_now);
-        get_roll_pitch(&r_slow, &p);
-    }
-    TEST_ASSERT_FLOAT_WITHIN(0.3f, r_slow, r_fast);
-    TEST_ASSERT_FLOAT_WITHIN(1.0f, 20.0f * (1.0f - expf(-0.5f / TAU_RP)), r_fast);
+    get_roll_pitch(&r, &p);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.0f, r);
 }
 
 /* ------------------------------------------------------------------ */
@@ -259,7 +284,7 @@ void test_est_one_step_of_the_accel_is_2_percent(void) {
     set_tilt(10.0f, 0.0f);
     t_now += DT_NS; set_time_imu(t_now);
     get_roll_pitch(&r, &p);
-    TEST_ASSERT_FLOAT_WITHIN(1e-3f, (1.0f - alpha_of(DT_NS / 1e9f)) * 10.0f, r);
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, (1.0f - ALPHA) * 10.0f, r);
 }
 
 void test_est_gyro_is_integrated_with_the_timestamps(void) {
@@ -268,8 +293,8 @@ void test_est_gyro_is_integrated_with_the_timestamps(void) {
     t_now += 10000000LL;                /* 10 ms */
     set_time_imu(t_now);
     get_roll_pitch(&r, &p);
-    TEST_ASSERT_FLOAT_WITHIN(1e-4f, alpha_of(0.01f) * 0.1f, r);
-    TEST_ASSERT_FLOAT_WITHIN(1e-4f, alpha_of(0.01f) * -0.2f, p);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, ALPHA * 0.1f, r);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, ALPHA * -0.2f, p);
 }
 
 void test_est_gyro_1_s_at_30_dps_is_about_30_deg(void) {
@@ -499,6 +524,75 @@ void test_ext_never_over_max_angle(void) {
 
 void test_ext_max_angle_is_20_deg(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.5f, 20.0f, (float)DEG(MAX_ANGLE));
+}
+
+/* ---- Limit of the cmd_vel velocity (v_max of parameters.c) ---- */
+/* The default limit is the one of menuconfig (cm/s -> m/s). */
+void test_vlim_default_is_the_menuconfig_value(void) {
+    params_t d;
+    get_default_params(&d);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, CONFIG_VEL_MAX / 100.0f, d.flight.vel_max);
+}
+
+void test_vlim_below_the_limit_does_not_change(void) {
+    set_max_velocity(0.5f);
+    float r, p;
+    cmd_vel_2_RP(&r, &p, vel(0.3, 0));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, KP_VEL * 0.3f, p);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, r);
+}
+
+void test_vlim_above_the_limit_goes_to_v_max(void) {
+    set_max_velocity(0.5f);
+    float r, p;
+    cmd_vel_2_RP(&r, &p, vel(2.0, 0));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, KP_VEL * 0.5f, p);
+    cmd_vel_2_RP(&r, &p, vel(0, -2.0));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, KP_VEL * 0.5f, r);   /* -y -> +roll */
+}
+
+/* The module is limited, not each axis: in diagonal each axis is v_max / sqrt(2)
+ * and the direction does not change. */
+void test_vlim_limits_the_module_and_keeps_the_direction(void) {
+    set_max_velocity(0.5f);
+    float r, p;
+    cmd_vel_2_RP(&r, &p, vel(1.0, 1.0));
+    float each = 0.5f / sqrtf(2.0f);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, KP_VEL * each, p);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, -KP_VEL * each, r);
+
+    cmd_vel_2_RP(&r, &p, vel(3.0, -4.0));             /* module 5, 3-4-5 */
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, KP_VEL * 0.3f, p);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, KP_VEL * 0.4f, r);
+}
+
+void test_vlim_zero_stops_the_drone(void) {
+    set_max_velocity(0.0f);
+    float r, p;
+    cmd_vel_2_RP(&r, &p, vel(1.0, -1.0));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, p);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, r);
+}
+
+/* Only the command is limited: a drift faster than v_max is still braked
+ * with all its error. */
+void test_vlim_does_not_limit_the_measured_velocity(void) {
+    set_max_velocity(0.5f);
+    set_vel_lin(0.8f, 0, 0);
+    float r, p;
+    cmd_vel_2_RP(&r, &p, vel(0, 0));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, -KP_VEL * 0.8f, p);
+}
+
+/* v_max can change at runtime (drone/params). */
+void test_vlim_uses_the_current_v_max(void) {
+    float r, p;
+    set_max_velocity(0.2f);
+    cmd_vel_2_RP(&r, &p, vel(1.0, 0));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, KP_VEL * 0.2f, p);
+    set_max_velocity(0.4f);
+    cmd_vel_2_RP(&r, &p, vel(1.0, 0));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, KP_VEL * 0.4f, p);
 }
 
 /* ------------------------------------------------------------------ */
@@ -990,7 +1084,7 @@ void test_gains_start_with_the_defines(void) {
     TEST_ASSERT_EQUAL_FLOAT(KI_RATE, k.ki_rate);
     TEST_ASSERT_EQUAL_FLOAT(KP_YAW_RATE, k.kp_yaw_rate);
     TEST_ASSERT_EQUAL_FLOAT(MAX_RATE, k.max_rate);
-    TEST_ASSERT_EQUAL_FLOAT(MAX_POW_RPY, k.max_pow_rpy);
+    TEST_ASSERT_EQUAL_FLOAT(MAX_POW_RPY, k.max_pow_rp);
     TEST_ASSERT_EQUAL_FLOAT(THROTTLE_BASE, k.base);
 }
 
@@ -1071,12 +1165,26 @@ void test_i_accumulates_the_rate_error_while_flying(void) {
     set_vel_ang(-10.0f, 0, 0);          /* roll rate error of ~+10 deg/s */
     step();
     float dt = DT_NS / 1e9f;
-    TEST_ASSERT_FLOAT_WITHIN(0.003f, KI_RATE * 10.0f * dt, i_roll);
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, i_pitch);
+    TEST_ASSERT_FLOAT_WITHIN(0.003f, ROLL_DEVIATION + KI_RATE * 10.0f * dt, i_roll);
+    /* The first flying cycle starts from the trim, not from 0 */
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, PITCH_DEVIATION, i_pitch);
+}
+
+/* roll_deviation is the trim of the roll integral at take off (0 by default). */
+void test_i_roll_starts_with_the_roll_deviation(void) {
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, default_gains.roll_deviation);
+    GAINS k = default_gains;
+    k.roll_deviation = 7.0f;
+    set_gains(&k);
+    set_sm_state(HOVERING);
+    step();                              /* no rate error */
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 7.0f, i_roll);
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, PITCH_DEVIATION, i_pitch);
 }
 
 void test_i_grows_while_the_error_lasts(void) {
     set_sm_state(HOVERING);
+    was_flying = true; /* Already flying: no trim of the first cycle */
     set_vel_ang(0, -10.0f, 0);
     step();
     float one = i_pitch;
@@ -1095,6 +1203,7 @@ void test_i_works_while_taking_off(void) {
 
 void test_i_is_limited(void) {
     set_sm_state(HOVERING);
+    was_flying = true; /* Already flying: no trim of the first cycle */
     i_roll = 1000.0f;
     i_pitch = -1000.0f;
     step();
@@ -1105,6 +1214,7 @@ void test_i_is_limited(void) {
 /* Without error the integral keeps the torque it learned. */
 void test_i_holds_the_torque_without_error(void) {
     set_sm_state(HOVERING);
+    was_flying = true; /* Already flying: no trim of the first cycle */
     i_pitch = 20.0f;
     step_same_time();
     TEST_ASSERT_DOUBLE_WITHIN(1e-3, 20.0, decompose().p);
@@ -1151,6 +1261,124 @@ void test_i_gains_can_be_changed(void) {
     TEST_ASSERT_DOUBLE_WITHIN(1e-3, 10.0, decompose().y);
 }
 
+/* ------------------------------------------------------------------ */
+/*                          EMERGENCY LANDING                         */
+/* ------------------------------------------------------------------ */
+static void steps(int n) {
+    for (int i = 0; i < n; i++) {
+        step();
+    }
+}
+
+static double mean_motors(void) {
+    return (motors[0] + motors[1] + motors[2] + motors[3]) / N_MOTORS;
+}
+
+/* Without barometer: it goes below the hover power and stays there. */
+void test_emergency_baro_power_goes_down_and_holds(void) {
+    GAINS k;
+    get_gains(&k);
+    set_sm_state(EMERGENCY_LANDING);
+    mock_baro_failing = true;
+
+    step();
+    TEST_ASSERT_TRUE_MESSAGE(mean_motors() > k.base - EMRGY_POW_DOWN, "the power can not fall at once");
+
+    for (int i = 0; i < 400; i++) {
+        step();
+    }
+    double settled = mean_motors();
+    TEST_ASSERT_DOUBLE_WITHIN(2.0f * EMRGY_POW_RATE * ATTITUDE_TASK_PERIOD_MS / 1000.0f, /* It can pass by one step */
+                              k.base - EMRGY_POW_DOWN, settled);
+
+    for (int i = 0; i < 400; i++) {
+        step();
+    }
+    TEST_ASSERT_EQUAL_DOUBLE_MESSAGE(settled, mean_motors(), "the power must not go on falling");
+}
+
+/* The correction of k.base found while hovering is kept. */
+void test_emergency_baro_uses_the_mean_hover_power(void) {
+    GAINS k;
+    get_gains(&k);
+    hover_w_h = 5.0f;
+    set_sm_state(EMERGENCY_LANDING);
+    mock_baro_failing = true;
+    for (int i = 0; i < 400; i++) {
+        step();
+    }
+    TEST_ASSERT_DOUBLE_WITHIN(0.1, k.base + 5.0f - EMRGY_POW_DOWN, mean_motors());
+}
+
+void test_emergency_hover_power_is_only_learnt_in_stable_flight(void) {
+    mock_target.h = 1.0f; /* err_h > 0: pow_h > 0 */
+    set_sm_state(TAKING_OFF);
+    steps(50);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, hover_w_h);
+
+    set_sm_state(HOVERING);
+    steps(50);
+    TEST_ASSERT_TRUE(hover_w_h > 0.0f);
+}
+
+/* The frozen barometer does not correct the height: the drone does move. */
+void test_emergency_baro_frozen_does_not_correct_the_height(void) {
+    set_sm_state(EMERGENCY_LANDING);
+    mock_baro_failing = true;
+    set_acc_lin(0.0f, 0.0f, 0.9f); /* Falling at 0.1 g */
+    steps(100);
+    TEST_ASSERT_TRUE(last_vel_z < -0.1f);
+    TEST_ASSERT_TRUE(h_est < -0.01f);
+}
+
+/* Without IMU, system.c is the only one that writes the motors. */
+void test_emergency_imu_controller_does_not_write_the_motors(void) {
+    set_sm_state(EMERGENCY_LANDING);
+    mock_baro_failing = false;
+    mock_imu_failing = true;
+    motor_calls = 0;
+    steps(10);
+    TEST_ASSERT_EQUAL_INT(0, motor_calls);
+}
+
+/* Link lost: the sensors are ok, so the controller flies to h = 0 as in LANDING. */
+void test_emergency_link_lost_controls_like_LANDING(void) {
+    mock_target.h = 0.0f;
+    set_sm_state(LANDING);
+    motor_calls = 0;
+    steps(10);
+    double landing[N_MOTORS];
+    memcpy(landing, motors, sizeof landing);
+    int landing_calls = motor_calls;
+
+    setUp();
+    mock_target.h = 0.0f;
+    set_sm_state(EMERGENCY_LANDING);
+    motor_calls = 0;
+    steps(10);
+    TEST_ASSERT_EQUAL_INT(landing_calls, motor_calls);
+    for (int i = 0; i < N_MOTORS; i++) {
+        TEST_ASSERT_DOUBLE_WITHIN(1e-6, landing[i], motors[i]);
+    }
+}
+
+void test_emergency_last_motor_power_is_the_mean(void) {
+    set_sm_state(HOVERING);
+    step();
+    TEST_ASSERT_DOUBLE_WITHIN(0.001, mean_motors(), get_last_motor_power());
+}
+
+/* The integral (and its trim) must not go back to 0 in the emergency. */
+void test_emergency_keeps_the_integral(void) {
+    set_sm_state(HOVERING);
+    step();
+    float trim = i_pitch;
+    set_sm_state(EMERGENCY_LANDING);
+    mock_baro_failing = true;
+    step();
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, trim, i_pitch);
+}
+
 int main(void) {
     UNITY_BEGIN();
 
@@ -1158,9 +1386,8 @@ int main(void) {
     RUN_TEST(test_comp_alpha_0_returns_the_second);
     RUN_TEST(test_comp_blend_value);
     RUN_TEST(test_comp_alpha_trusts_the_gyro);
-    RUN_TEST(test_comp_alpha_at_15_ms_is_the_old_0_98);
-    RUN_TEST(test_comp_alpha_of_0_is_1);
-    RUN_TEST(test_comp_correction_does_not_depend_on_the_frequency);
+    RUN_TEST(test_comp_same_sample_does_not_integrate_the_gyro);
+    RUN_TEST(test_comp_correction_depends_on_the_number_of_cycles);
 
     RUN_TEST(test_est_level_and_still_is_zero);
     RUN_TEST(test_est_accel_converges_to_the_roll);
@@ -1185,6 +1412,13 @@ int main(void) {
     RUN_TEST(test_ext_diagonal_gives_equal_roll_and_pitch);
     RUN_TEST(test_ext_is_limited_to_max_angle);
     RUN_TEST(test_ext_never_over_max_angle);
+    RUN_TEST(test_vlim_default_is_the_menuconfig_value);
+    RUN_TEST(test_vlim_below_the_limit_does_not_change);
+    RUN_TEST(test_vlim_above_the_limit_goes_to_v_max);
+    RUN_TEST(test_vlim_limits_the_module_and_keeps_the_direction);
+    RUN_TEST(test_vlim_zero_stops_the_drone);
+    RUN_TEST(test_vlim_does_not_limit_the_measured_velocity);
+    RUN_TEST(test_vlim_uses_the_current_v_max);
     RUN_TEST(test_ext_max_angle_is_20_deg);
     RUN_TEST(test_ext_command_gives_kp_vel_per_m_s);
     RUN_TEST(test_ext_hover_brakes_a_forward_drift);
@@ -1256,6 +1490,7 @@ int main(void) {
     RUN_TEST(test_task_controls_every_cycle);
 
     RUN_TEST(test_i_accumulates_the_rate_error_while_flying);
+    RUN_TEST(test_i_roll_starts_with_the_roll_deviation);
     RUN_TEST(test_i_grows_while_the_error_lasts);
     RUN_TEST(test_i_works_while_taking_off);
     RUN_TEST(test_i_is_limited);
@@ -1264,6 +1499,15 @@ int main(void) {
     RUN_TEST(test_i_does_not_change_with_the_same_imu_sample);
     RUN_TEST(test_i_is_not_used_in_yaw);
     RUN_TEST(test_i_gains_can_be_changed);
+
+    RUN_TEST(test_emergency_baro_power_goes_down_and_holds);
+    RUN_TEST(test_emergency_baro_uses_the_mean_hover_power);
+    RUN_TEST(test_emergency_hover_power_is_only_learnt_in_stable_flight);
+    RUN_TEST(test_emergency_baro_frozen_does_not_correct_the_height);
+    RUN_TEST(test_emergency_imu_controller_does_not_write_the_motors);
+    RUN_TEST(test_emergency_link_lost_controls_like_LANDING);
+    RUN_TEST(test_emergency_last_motor_power_is_the_mean);
+    RUN_TEST(test_emergency_keeps_the_integral);
 
     return UNITY_END();
 }
