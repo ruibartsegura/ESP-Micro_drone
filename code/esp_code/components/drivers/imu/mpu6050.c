@@ -32,8 +32,8 @@
 #include "esp_timer.h"
 
 
-#define ACCEL_SCALE 16384.0f // LSB/g para ±2g
-#define GYRO_SCALE  131.0f   // LSB/(°/s) para ±250°/s
+#define ACCEL_SCALE 16384.0f // LSB/g -> ±2g
+#define GYRO_SCALE  131.0f // LSB/(°/s) -> ±250°/s
 
 static esp_err_t mpu6050_write_reg(i2c_port_t i2c_num, uint8_t reg, uint8_t value) {
     uint8_t buf[2] = { reg, value };
@@ -44,21 +44,15 @@ static esp_err_t mpu6050_write_reg(i2c_port_t i2c_num, uint8_t reg, uint8_t valu
 esp_err_t mpu6050_init(i2c_port_t i2c_num) {
     esp_err_t ret;
 
-    // FIX 1: antes se escribía un byte suelto (0x00) sin indicar el
-    // registro destino, así que nunca se limpiaba el bit SLEEP de
-    // PWR_MGMT_1 de forma fiable. Ahora se escribe [registro, valor].
     ret = mpu6050_write_reg(i2c_num, MPU6050_REG_PWR_MGMT_1, 0x00);
     if (ret != ESP_OK) {
         return ret;
     }
 
-    // Dar tiempo al sensor a estabilizar tras salir de sleep
+    // Time to stabilize after a sleep
     vTaskDelay(pdMS_TO_TICKS(50));
 
-    // FIX 3: fijar explícitamente el rango, en vez de asumir el valor
-    // de reset del chip (que coincide con ACCEL_SCALE/GYRO_SCALE, pero
-    // conviene no depender de eso).
-    ret = mpu6050_write_reg(i2c_num, MPU6050_REG_GYRO_CONFIG, 0x00);  // ±250 °/s
+    ret = mpu6050_write_reg(i2c_num, MPU6050_REG_GYRO_CONFIG, 0x00); // ±250 °/s
     if (ret != ESP_OK) {
         return ret;
     }
@@ -68,16 +62,12 @@ esp_err_t mpu6050_init(i2c_port_t i2c_num) {
         return ret;
     }
 
-    // Filtro paso-bajo digital (~94 Hz accel / 98 Hz gyro, ~3 ms de retardo)
-    // para reducir ruido de vibración de motores/hélices. Con 42 Hz (0x03)
-    // el control a 200 Hz recibiría datos repetidos y ~5 ms más de retardo.
+    // Low filter
     ret = mpu6050_write_reg(i2c_num, MPU6050_REG_CONFIG, 0x02);
     if (ret != ESP_OK) {
         return ret;
     }
 
-    // Sample rate = 1kHz / (1 + SMPLRT_DIV). Con DLPF activo el sample
-    // rate base es 1kHz; div=0 -> 1kHz de muestreo interno.
     ret = mpu6050_write_reg(i2c_num, MPU6050_REG_SMPLRT_DIV, 0x00);
     if (ret != ESP_OK) {
         return ret;
@@ -94,10 +84,6 @@ esp_err_t mpu6050_read_raw_data(i2c_port_t i2c_num,
     esp_err_t ret;
     uint8_t reg_addr = MPU6050_REG_ACCEL_XOUT_H;
 
-    // FIX 4: una sola transacción atómica (repeated start) en vez de
-    // write + read separados. Evita que otro maestro/tarea intercale
-    // una transacción entre medias y quedarnos leyendo el registro
-    // equivocado.
     ret = i2c_master_write_read_device(i2c_num, MPU6050_ADDR,
                                         &reg_addr, 1,
                                         data, sizeof(data),
@@ -109,10 +95,10 @@ esp_err_t mpu6050_read_raw_data(i2c_port_t i2c_num,
     *accel_x = (int16_t)((data[0] << 8) | data[1]);
     *accel_y = (int16_t)((data[2] << 8) | data[3]);
     *accel_z = (int16_t)((data[4] << 8) | data[5]);
-    // data[6],data[7] = temperatura, se ignora
-    *gyro_x  = (int16_t)((data[8]  << 8) | data[9]);
-    *gyro_y  = (int16_t)((data[10] << 8) | data[11]);
-    *gyro_z  = (int16_t)((data[12] << 8) | data[13]);
+    // data[6],data[7] = Temp, ignored
+    *gyro_x = (int16_t)((data[8]  << 8) | data[9]);
+    *gyro_y = (int16_t)((data[10] << 8) | data[11]);
+    *gyro_z = (int16_t)((data[12] << 8) | data[13]);
 
     if (t_stamp != NULL) {
         *t_stamp = esp_timer_get_time() * 1000; // Nanosec
@@ -146,15 +132,13 @@ esp_err_t mpu6050_calibrate(i2c_port_t i2c_num, float *accel_bias, float *gyro_b
     const int samples = 200;
     const float zero_bias[3] = { 0.0f, 0.0f, 0.0f };
 
-    // El dron DEBE estar quieto y nivelado durante esta rutina.
     for (int i = 0; i < samples; i++) {
         esp_err_t ret = mpu6050_read_raw_data(i2c_num, &accel_x, &accel_y, &accel_z,
                                                &gyro_x, &gyro_y, &gyro_z, NULL);
         if (ret != ESP_OK) {
-            return ret; // antes se ignoraba el error de lectura
+            return ret;
         }
 
-        // Convertimos sin bias (bias=0) para medir el offset crudo real.
         mpu6050_convert_accel(accel_x, accel_y, accel_z, zero_bias,
                                &accel_x_g, &accel_y_g, &accel_z_g);
         mpu6050_convert_gyro(gyro_x, gyro_y, gyro_z, zero_bias,
@@ -163,16 +147,16 @@ esp_err_t mpu6050_calibrate(i2c_port_t i2c_num, float *accel_bias, float *gyro_b
         accel_x_sum += accel_x_g;
         accel_y_sum += accel_y_g;
         accel_z_sum += accel_z_g;
-        gyro_x_sum  += gyro_x_dps;
-        gyro_y_sum  += gyro_y_dps;
-        gyro_z_sum  += gyro_z_dps;
+        gyro_x_sum += gyro_x_dps;
+        gyro_y_sum += gyro_y_dps;
+        gyro_z_sum += gyro_z_dps;
 
-        vTaskDelay(pdMS_TO_TICKS(5)); // dejar respirar al bus I2C
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 
     accel_bias[0] = accel_x_sum / samples;
     accel_bias[1] = accel_y_sum / samples;
-    accel_bias[2] = accel_z_sum / samples - 1.0f; // en reposo Z debe leer +1g
+    accel_bias[2] = accel_z_sum / samples - 1.0f;
 
     gyro_bias[0] = gyro_x_sum / samples;
     gyro_bias[1] = gyro_y_sum / samples;

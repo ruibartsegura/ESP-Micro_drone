@@ -15,8 +15,8 @@ typedef struct {
 
 extern mock_task_t mock_tasks[MOCK_MAX_TASKS];
 extern int         mock_task_count;
-extern int         mock_delay_calls;     /* number of vTaskDelay() calls      */
-extern uint64_t    mock_delay_total_ms;  /* sum of all the delays             */
+extern int         mock_delay_calls; /* number of vTaskDelay() calls      */
+extern uint64_t    mock_delay_total_ms; /* sum of all the delays             */
 extern int         mock_task_delete_calls;
 
 BaseType_t  xTaskCreate(TaskFunction_t fn, const char *name, uint32_t stack,

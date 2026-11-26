@@ -234,8 +234,8 @@ void test_update_out_of_range_rejects_everything(void) {
     params_t before, after, in;
     get_all_params(&before);
     params_keep_all(&in);
-    in.flight.vel_max = 1.0f;     /* valid */
-    in.gains.alpha = 1.5f;        /* > 1 */
+    in.flight.vel_max = 1.0f; /* valid */
+    in.gains.alpha = 1.5f; /* > 1 */
     TEST_ASSERT_EQUAL_STRING("alpha", params_update(&in));
     get_all_params(&after);
     TEST_ASSERT_EQUAL_MEMORY(&before, &after, sizeof before);

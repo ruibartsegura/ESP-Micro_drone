@@ -54,7 +54,7 @@ float get_vel_z() { return vel_z_ret; }
 /* ------------------------------------------------------------------ */
 /*                              HELPERS                               */
 /* ------------------------------------------------------------------ */
-#define DT_NS 10000000LL   /* 10 ms, period of the task */
+#define DT_NS 10000000LL /* 10 ms, period of the task */
 
 /* Default rotor drag (parameters.c, menuconfig x1000) */
 #define K_DRAG (CONFIG_K_DRAG / 1000.0f)
@@ -95,10 +95,10 @@ void setUp(void) {
     vel_x = vel_y = vel_z = 0.0f;
     x = y = 0.0f;
     vel_z_ret = 0.0f;
-    t_now = 1000000000LL;   /* 1 s */
+    t_now = 1000000000LL; /* 1 s */
     last_t_imu = t_now;
     set_time_imu(t_now);
-    set_acc_lin(0, 0, 1.0f);   /* level and still: only gravity */
+    set_acc_lin(0, 0, 1.0f); /* level and still: only gravity */
     set_vel_ang(0, 0, 0);
 }
 
@@ -111,9 +111,22 @@ void test_init_test_is_false_before_init(void) {
     TEST_ASSERT_FALSE(odom_estimator_test());
 }
 
+/* The mock does not run odom_task: this hook does one iteration of the task
+ * every 10 ms that odom_estimator_test() waits. */
+static void odom_task_runs(TickType_t ticks) {
+    odom_iter += ticks / ODOM_TASK_PERIOD_MS;
+}
+
 void test_init_test_is_true_after_init(void) {
     init_odom_estimator();
+    mock_delay_hook = odom_task_runs;
     TEST_ASSERT_TRUE(odom_estimator_test());
+}
+
+/* odom_task dead or stuck: no iterations while the test waits */
+void test_init_test_is_false_if_the_task_does_not_run(void) {
+    init_odom_estimator();
+    TEST_ASSERT_FALSE(odom_estimator_test());
 }
 
 void test_init_creates_the_task_with_the_menuconfig_values(void) {
@@ -237,7 +250,7 @@ void test_odom_velocity_follows_the_low_pass(void) {
 void test_odom_velocity_does_not_drift(void) {
     set_sm_state(HOVERING);
     set_acc_lin(-0.002f, 0, 1.0f);
-    for (int i = 0; i < 2000; i++) odom_step();   /* 20 s */
+    for (int i = 0; i < 2000; i++) odom_step(); /* 20 s */
     TEST_ASSERT_TRUE(fabsf(vel_x) <= fabsf(DRAG_VEL(0.002f)) * 1.05f);
 }
 
@@ -288,7 +301,7 @@ void test_odom_velocity_is_rotated_with_the_yaw(void) {
 
 void test_odom_first_sample_long_dt_is_ignored(void) {
     set_sm_state(HOVERING);
-    last_t_imu = 0;   /* after boot */
+    last_t_imu = 0; /* after boot */
     set_acc_lin(0.5f, 0.5f, 1.0f);
     odom_step();
     TEST_ASSERT_EQUAL_FLOAT(0.0f, vel_x);
@@ -298,7 +311,7 @@ void test_odom_first_sample_long_dt_is_ignored(void) {
 void test_odom_zero_dt_does_not_change_the_velocity(void) {
     set_sm_state(HOVERING);
     set_acc_lin(0.5f, 0.5f, 1.0f);
-    estimate_odom();   /* same IMU time */
+    estimate_odom(); /* same IMU time */
     TEST_ASSERT_EQUAL_FLOAT(0.0f, vel_x);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, vel_y);
 }
@@ -309,7 +322,7 @@ void test_odom_constant_velocity_moves_the_position(void) {
     float v = DRAG_VEL(-0.01f);
     vel_x = v;
     set_acc_lin(-0.01f, 0, 1.0f);
-    for (int i = 0; i < 100; i++) odom_step();   /* 100 x 10 ms = 1 s */
+    for (int i = 0; i < 100; i++) odom_step(); /* 100 x 10 ms = 1 s */
     vec3_t p;
     get_position(&p);
     TEST_ASSERT_FLOAT_WITHIN(VEL_TOL(v), v, p.x);
@@ -318,7 +331,7 @@ void test_odom_constant_velocity_moves_the_position(void) {
 /* quaternion_update() needs the gyroscope in rad/s and the state has it in
  * deg/s: 1 s at 90 deg/s in yaw must give 90 deg. */
 void test_odom_gyro_is_converted_to_rad_s(void) {
-    set_vel_ang(0, 0, 90.0f);   /* deg/s */
+    set_vel_ang(0, 0, 90.0f); /* deg/s */
     for (int i = 0; i < 100; i++) odom_step();
     TEST_ASSERT_FLOAT_WITHIN(2.0f, 90.0f, quaternion_get_yaw(&q));
 }
@@ -328,6 +341,7 @@ int main(void) {
 
     RUN_TEST(test_init_test_is_false_before_init);
     RUN_TEST(test_init_test_is_true_after_init);
+    RUN_TEST(test_init_test_is_false_if_the_task_does_not_run);
     RUN_TEST(test_init_creates_the_task_with_the_menuconfig_values);
     RUN_TEST(test_init_twice_creates_one_task);
     RUN_TEST(test_init_resets_the_quaternion_and_the_velocities);

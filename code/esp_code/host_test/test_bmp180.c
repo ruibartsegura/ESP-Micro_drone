@@ -44,21 +44,21 @@
 /* ------------------------------------------------------------------ */
 /*                           FAKE BMP180                              */
 /* ------------------------------------------------------------------ */
-static int32_t fake_ut;      /* raw temperature that the chip will return       */
-static int32_t fake_up;      /* raw pressure (already >> (8 - oss)) to return   */
+static int32_t fake_ut; /* raw temperature that the chip will return       */
+static int32_t fake_up; /* raw pressure (already >> (8 - oss)) to return   */
 
 static const int16_t DS_CAL[11] = {
-    408,     /* AC1 */
-    -72,     /* AC2 */
-    -14383,  /* AC3 */
+    408, /* AC1 */
+    -72, /* AC2 */
+    -14383, /* AC3 */
     (int16_t)32741, /* AC4 (unsigned) */
     (int16_t)32757, /* AC5 (unsigned) */
     (int16_t)23153, /* AC6 (unsigned) */
-    6190,    /* B1 */
-    4,       /* B2 */
-    -32768,  /* MB */
-    -8711,   /* MC */
-    2868     /* MD */
+    6190, /* B1 */
+    4, /* B2 */
+    -32768, /* MB */
+    -8711, /* MC */
+    2868 /* MD */
 };
 
 static void fake_bmp_load_calibration(const int16_t cal[11]) {
@@ -74,7 +74,7 @@ static void fake_bmp_write_hook(uint8_t addr, uint8_t reg, const uint8_t *data, 
         mock_i2c_regs[ADDR][0xF7] = (uint8_t)(fake_ut & 0xFF);
     } else if ((cmd & 0x3F) == 0x34) {
         int oss = cmd >> 6;
-        uint32_t raw = (uint32_t)fake_up << (8 - oss);   /* 19 bits left aligned in 24 */
+        uint32_t raw = (uint32_t)fake_up << (8 - oss); /* 19 bits left aligned in 24 */
         mock_i2c_regs[ADDR][0xF6] = (uint8_t)(raw >> 16);
         mock_i2c_regs[ADDR][0xF7] = (uint8_t)(raw >> 8);
         mock_i2c_regs[ADDR][0xF8] = (uint8_t)(raw & 0xFF);
@@ -82,7 +82,7 @@ static void fake_bmp_write_hook(uint8_t addr, uint8_t reg, const uint8_t *data, 
 }
 
 static void fake_bmp_reset(void) {
-    mock_i2c_regs[ADDR][0xD0] = 0x55;   /* chip id */
+    mock_i2c_regs[ADDR][0xD0] = 0x55; /* chip id */
     fake_bmp_load_calibration(DS_CAL);
     fake_ut = 27898;
     fake_up = 23843;
@@ -142,7 +142,7 @@ void test_init_reads_the_chip_id_register_first(void) {
 }
 
 void test_init_wrong_chip_id_is_not_found(void) {
-    mock_i2c_regs[ADDR][0xD0] = 0x58;   /* BMP280 id */
+    mock_i2c_regs[ADDR][0xD0] = 0x58; /* BMP280 id */
     TEST_ASSERT_EQUAL_INT(ESP_ERR_NOT_FOUND, bmp180_init(&dev, I2C_NUM_0, BMP180_MODE_STANDARD));
 }
 
@@ -189,8 +189,8 @@ void test_init_parses_the_calibration_big_endian(void) {
 void test_init_unsigned_coefficients_above_32767(void) {
     int16_t cal[11];
     memcpy(cal, DS_CAL, sizeof cal);
-    cal[3] = (int16_t)0xFFF0;   /* AC4 = 65520 */
-    cal[4] = (int16_t)0x8001;   /* AC5 = 32769 */
+    cal[3] = (int16_t)0xFFF0; /* AC4 = 65520 */
+    cal[4] = (int16_t)0x8001; /* AC5 = 32769 */
     fake_bmp_load_calibration(cal);
     bmp180_init(&dev, I2C_NUM_0, BMP180_MODE_STANDARD);
     TEST_ASSERT_EQUAL_UINT(65520, dev.AC4);
@@ -203,7 +203,7 @@ void test_init_unsigned_coefficients_above_32767(void) {
 void test_init_rejects_calibration_words_0x0000(void) {
     int16_t cal[11];
     memcpy(cal, DS_CAL, sizeof cal);
-    cal[3] = 0;   /* AC4 */
+    cal[3] = 0; /* AC4 */
     fake_bmp_load_calibration(cal);
     TEST_ASSERT_NOT_EQUAL_INT(ESP_OK, bmp180_init(&dev, I2C_NUM_0, BMP180_MODE_STANDARD));
 }
@@ -344,7 +344,7 @@ void test_press_reads_3_data_bytes_from_0xF6(void) {
 static void check_mode(bmp180_mode_t mode, uint8_t cmd, uint64_t min_ms) {
     int32_t p;
     init_ok(mode);
-    fake_up = 23843 << mode;   /* same real pressure, more resolution */
+    fake_up = 23843 << mode; /* same real pressure, more resolution */
     TEST_ASSERT_EQUAL_INT(ESP_OK, bmp180_read_pressure(&dev, &p));
     TEST_ASSERT_TRUE_MESSAGE(find_ctrl_write(cmd, 0) >= 0, "wrong pressure command for the mode");
     /* 5 ms are for the temperature, the rest for the pressure */

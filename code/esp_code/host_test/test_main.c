@@ -42,7 +42,7 @@ void test_app_main_starts_the_system_once(void) {
 
 void test_app_main_does_not_create_other_tasks(void) {
     app_main();
-    TEST_ASSERT_EQUAL_INT(0, mock_task_count);   /* system_start() is mocked */
+    TEST_ASSERT_EQUAL_INT(0, mock_task_count); /* system_start() is mocked */
 }
 
 void test_app_main_returns_without_blocking(void) {

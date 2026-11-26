@@ -71,7 +71,7 @@
     #define ATTITUDE_TASK_PERIOD_MS 15 // ~66 Hz
 
 #else
-    #define ATTITUDE_TASK_PERIOD_MS 5  // 200 Hz
+    #define ATTITUDE_TASK_PERIOD_MS 5 // 200 Hz
 
 #endif
 
@@ -110,11 +110,11 @@ static float err_h;
 // Integral terms of the roll / pitch rate (rad/s). They only work in the flight
 // states: in the others (ARMING, DISARMING...) they go back to 0
 static float i_roll, i_pitch;
-static int64_t last_t_ctrl;  // IMU time of the last control cycle (ns)
+static int64_t last_t_ctrl; // IMU time of the last control cycle (ns)
 
 // Emergency landing without barometer: the motor speed goes to a bit less than
 // the hover one and stays there (open loop).
-#define EMRGY_POW_DOWN 70.0f  // Below the hover speed (rad/s)
+#define EMRGY_POW_DOWN 70.0f // Below the hover speed (rad/s)
 #define EMRGY_POW_RATE 140.0f // Speed of that decrease (rad/s^2)
 
 
@@ -266,7 +266,7 @@ void get_roll_pitch(float *roll, float *pitch) {
         dt = 0.0f;
     }
 
-    float roll_acc  = atan2f(acc_lin.y, acc_lin.z) * 180.0f / M_PI;
+    float roll_acc = atan2f(acc_lin.y, acc_lin.z) * 180.0f / M_PI;
 
     float pitch_acc = atan2f(-acc_lin.x, sqrtf(acc_lin.y*acc_lin.y + acc_lin.z*acc_lin.z))
                         * 180.0f / M_PI;
@@ -450,8 +450,8 @@ void control_attitude() {
     w_yaw = clampf(k.kp_yaw_rate * err_yaw_rate, k.max_pow_yaw);
 
     // ALTITUDE
+    float h = get_h(roll, pitch); // Also without barometer: the odometry uses the velocity
     if (!baro_failing) {
-        float h = get_h(roll, pitch); // Also without barometer: the odometry uses the velocity
         err_h = attitude_target.h - h; // Distance between target and actual h.
         w_h = err_h * k.kp_h - k.kd_h * last_vel_z;
 

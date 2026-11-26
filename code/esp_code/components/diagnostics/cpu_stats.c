@@ -42,7 +42,7 @@
 // the CPU. It sleeps almost all the time, so it does not disturb them
 #define CPU_STATS_TASK_PRIO 8
 
-#define MAX_TASKS 32   // FreeRTOS tasks (drone + ESP-IDF + WiFi)
+#define MAX_TASKS 32 // FreeRTOS tasks (drone + ESP-IDF + WiFi)
 #define MAX_PERIODS 12 // Tasks that measure their period
 
 static const char *TAG = "DIAG";

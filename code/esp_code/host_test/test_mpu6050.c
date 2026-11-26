@@ -46,7 +46,7 @@ static void fake_mpu_set_sample(int16_t ax, int16_t ay, int16_t az,
     mock_i2c_set_be16(ADDR, 0x3B, ax);
     mock_i2c_set_be16(ADDR, 0x3D, ay);
     mock_i2c_set_be16(ADDR, 0x3F, az);
-    mock_i2c_set_be16(ADDR, 0x41, 0x1234);   /* temperature, must be ignored */
+    mock_i2c_set_be16(ADDR, 0x41, 0x1234); /* temperature, must be ignored */
     mock_i2c_set_be16(ADDR, 0x43, gx);
     mock_i2c_set_be16(ADDR, 0x45, gy);
     mock_i2c_set_be16(ADDR, 0x47, gz);
@@ -61,8 +61,8 @@ static int first_write(uint8_t reg) {
 
 void setUp(void) {
     mock_reset_all();
-    for (int r = 0; r < 256; r++) mock_i2c_regs[ADDR][r] = 0xFF;   /* reset value != 0 */
-    fake_mpu_set_sample(0, 0, 16384, 0, 0, 0);                    /* level and still */
+    for (int r = 0; r < 256; r++) mock_i2c_regs[ADDR][r] = 0xFF; /* reset value != 0 */
+    fake_mpu_set_sample(0, 0, 16384, 0, 0, 0); /* level and still */
 }
 
 void tearDown(void) {}
@@ -170,7 +170,7 @@ void test_raw_ignores_the_temperature_registers(void) {
     int64_t t;
     fake_mpu_set_sample(10, 20, 30, 40, 50, 60);
     mpu6050_read_raw_data(I2C_NUM_0, &ax, &ay, &az, &gx, &gy, &gz, &t);
-    TEST_ASSERT_EQUAL_INT16(40, gx);   /* gyro starts at 0x43, after the temperature */
+    TEST_ASSERT_EQUAL_INT16(40, gx); /* gyro starts at 0x43, after the temperature */
 }
 
 void test_raw_timestamp_is_in_nanoseconds(void) {
@@ -289,14 +289,14 @@ void test_calib_level_and_still_gives_zero_bias(void) {
 void test_calib_z_bias_keeps_the_gravity(void) {
     /* At rest Z must read +1 g: the bias is the difference with 1 g */
     float ab[3], gb[3];
-    fake_mpu_set_sample(0, 0, 16384 + 1638, 0, 0, 0);   /* 1.1 g */
+    fake_mpu_set_sample(0, 0, 16384 + 1638, 0, 0, 0); /* 1.1 g */
     calibrate(ab, gb);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.1f, ab[2]);
 }
 
 void test_calib_offsets_of_every_axis(void) {
     float ab[3], gb[3];
-    fake_mpu_set_sample(820, -1638, 16384, 262, -131, 655);   /* 0.05 g, -0.1 g, 2, -1, 5 deg/s */
+    fake_mpu_set_sample(820, -1638, 16384, 262, -131, 655); /* 0.05 g, -0.1 g, 2, -1, 5 deg/s */
     calibrate(ab, gb);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.05f, ab[0]);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, -0.1f, ab[1]);
@@ -323,7 +323,7 @@ void test_calib_after_calibration_the_sample_reads_0_0_1g(void) {
 static int noise_i;
 static void noisy_read_hook(uint8_t addr, uint8_t reg, size_t len) {
     if (addr != ADDR || reg != 0x3B) return;
-    int16_t n = (noise_i++ % 2) ? 131 : -131;   /* +-1 deg/s, mean 0 */
+    int16_t n = (noise_i++ % 2) ? 131 : -131; /* +-1 deg/s, mean 0 */
     fake_mpu_set_sample(0, 0, 16384, (int16_t)(262 + n), 0, 0);
 }
 

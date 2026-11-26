@@ -58,7 +58,7 @@ void setUp(void) {
     memset(periods, 0, sizeof(periods));
     memset(prev, 0, sizeof(prev));
     memset(cur, 0, sizeof(cur));
-    mock_time_us = 1000000;   /* 1 s */
+    mock_time_us = 1000000; /* 1 s */
     fake_total = 0;
     system_state_calls = 0;
     const char *names[3] = { "IDLE", "attitude_task", "imu_task" };
@@ -106,7 +106,7 @@ void test_period_measures_the_time_between_ticks(void) {
 void test_period_late_is_more_than_2_periods(void) {
     task_period_t p = TASK_PERIOD("a", 10);
     task_period_tick(&p);
-    mock_time_us += 20000;   /* exactly 2 periods: not late */
+    mock_time_us += 20000; /* exactly 2 periods: not late */
     task_period_tick(&p);
     mock_time_us += 20001;
     task_period_tick(&p);

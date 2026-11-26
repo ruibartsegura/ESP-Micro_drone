@@ -21,9 +21,9 @@ typedef struct {
 #define MOCK_GPIO_LOG  512
 typedef struct { int pin; int level; } mock_gpio_event_t;
 
-extern int               mock_gpio_level[MOCK_GPIO_PINS];      /* -1 = never written */
+extern int               mock_gpio_level[MOCK_GPIO_PINS]; /* -1 = never written */
 extern int               mock_gpio_set_calls[MOCK_GPIO_PINS];
-extern int               mock_gpio_mode[MOCK_GPIO_PINS];       /* -1 = not configured */
+extern int               mock_gpio_mode[MOCK_GPIO_PINS]; /* -1 = not configured */
 extern int               mock_gpio_config_calls;
 extern mock_gpio_event_t mock_gpio_log[MOCK_GPIO_LOG];
 extern int               mock_gpio_log_len;

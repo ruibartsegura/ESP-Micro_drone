@@ -44,7 +44,7 @@
 // thrust (Z) and the drag of the rotors, proportional to the velocity:
 // a_body = -K_DRAG * v_body (rosbag 15/10: K_DRAG = 0.124 1/s, corr -1.00).
 // K_DRAG: get_odom_params() (parameters.c, menuconfig x1000)
-#define TAU_VEL 0.1f  // Low pass of the velocity (s)
+#define TAU_VEL 0.1f // Low pass of the velocity (s)
 
 static quat_t q;
 static double last_t_imu;

@@ -48,21 +48,21 @@ bool                rcl_service_is_valid(const rcl_service_t *srv);
 typedef enum { MOCK_ROS_NODE, MOCK_ROS_PUB, MOCK_ROS_SUB, MOCK_ROS_SRV, MOCK_ROS_TIMER } mock_ros_kind_t;
 typedef struct {
     mock_ros_kind_t      kind;
-    const void          *handle;       /* &publisher, &subscription, ... */
-    char                 name[64];     /* topic / service / node name    */
-    char                 type[64];     /* "pkg/msg/Type"                 */
+    const void          *handle; /* &publisher, &subscription, ... */
+    char                 name[64]; /* topic / service / node name    */
+    char                 type[64]; /* "pkg/msg/Type"                 */
     bool                 has_qos;
     rmw_qos_profile_t    qos;
-    bool                 best_effort;  /* *_init_best_effort was used    */
-    int64_t              period_ns;    /* timers                         */
-    rcl_timer_callback_t timer_cb;     /* timers                         */
+    bool                 best_effort; /* *_init_best_effort was used    */
+    int64_t              period_ns; /* timers                         */
+    rcl_timer_callback_t timer_cb; /* timers                         */
 } mock_ros_entity_t;
 
 #define MOCK_ROS_MAX 32
 extern mock_ros_entity_t mock_ros_entities[MOCK_ROS_MAX];
 extern int               mock_ros_entity_count;
-extern int               mock_rcl_calls;        /* calls to any mocked rcl/rclc function */
-extern int               mock_rcl_fail_at;      /* make call number N fail (1..), 0 = never */
+extern int               mock_rcl_calls; /* calls to any mocked rcl/rclc function */
+extern int               mock_rcl_fail_at; /* make call number N fail (1..), 0 = never */
 extern int               mock_rcl_publish_calls;
 extern const void       *mock_rcl_last_pub;
 extern const void       *mock_rcl_last_msg;
@@ -71,4 +71,4 @@ extern char              mock_uros_agent_port[16];
 
 const mock_ros_entity_t *mock_ros_find(mock_ros_kind_t kind, const char *name);
 int                      mock_ros_count(mock_ros_kind_t kind);
-rcl_ret_t                mock_rcl_next(void);   /* used by the mocks: count + failure injection */
+rcl_ret_t                mock_rcl_next(void); /* used by the mocks: count + failure injection */

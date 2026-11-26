@@ -3,7 +3,6 @@
  * Date: 23/05/2026
  * email: rui.bartolome@gmail.com
  *
- 
  * Description:
  *   Driver for the 4 status LEDs of the drone (ESP built-in, red, green
  *   and blue). The pins come from menuconfig.
@@ -71,8 +70,6 @@ bool led_test(void) {
         return false;
     }
 
-    // ESP_LOGI(TAG, "Empieza test");
-
     int before[N_LEDS];
     for (int x = 0; x < N_LEDS; x++) {
         before[x] = led_status[x];
@@ -89,10 +86,8 @@ bool led_test(void) {
         vTaskDelay(pdMS_TO_TICKS(250));
     }
 
-    // ESP_LOGI(TAG, "Termina test");
     all_off();
 
-    // CHANGE 1: turn on again the LEDs that were on
     for (int x = 0; x < N_LEDS; x++) {
         if (before[x] == LED_ON) {
             led_on((led_t)x);

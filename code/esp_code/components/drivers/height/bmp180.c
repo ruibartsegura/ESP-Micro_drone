@@ -46,7 +46,6 @@ static const char *TAG = "BMP180";
 // Value of bmp180_compute_b5() when the calibration gives a division by zero
 #define BMP180_B5_INVALID INT32_MIN
 
-// ---------- Helpers de bajo nivel I2C ----------
 
 static esp_err_t bmp180_write_reg(bmp180_t *dev, uint8_t reg, uint8_t value) {
     uint8_t buf[2] = { reg, value };
@@ -67,8 +66,6 @@ static inline int16_t be16(const uint8_t *p) {
     return (int16_t)((p[0] << 8) | p[1]);
 }
 
-// ---------- API publica ----------
-
 esp_err_t bmp180_init(bmp180_t *dev, i2c_port_t i2c_port, bmp180_mode_t mode) {
     if (dev == NULL
         || mode < BMP180_MODE_ULTRA_LOW_POWER
@@ -80,31 +77,26 @@ esp_err_t bmp180_init(bmp180_t *dev, i2c_port_t i2c_port, bmp180_mode_t mode) {
     dev->i2c_port = i2c_port;
     dev->mode = mode;
 
-    // 1. Comprobar chip id
+    // 1. Check chip id
     uint8_t chip_id = 0;
     esp_err_t err = bmp180_read_regs(dev, BMP180_REG_CHIP_ID, &chip_id, 1);
     if (err != ESP_OK) {
-        // ESP_LOGE(TAG, "Fallo leyendo chip id: %s", esp_err_to_name(err));
         return err;
     }
     if (chip_id != BMP180_CHIP_ID_VALUE) {
-        // ESP_LOGE(TAG, "Chip id inesperado: 0x%02X (se esperaba 0x%02X)",
-                 // chip_id, BMP180_CHIP_ID_VALUE);
         return ESP_ERR_NOT_FOUND;
     }
 
-    // 2. Leer los 22 bytes (11 palabras de 16 bits) de calibracion
+    // Calibration
     uint8_t cal[22];
     err = bmp180_read_regs(dev, BMP180_REG_CAL_START, cal, sizeof(cal));
     if (err != ESP_OK) {
-        // ESP_LOGE(TAG, "Fallo leyendo calibracion: %s", esp_err_to_name(err));
         return err;
     }
 
     for (int i = 0; i < 11; i++) {
         uint16_t word = (uint16_t)((cal[2 * i] << 8) | cal[2 * i + 1]);
         if (word == 0x0000 || word == 0xFFFF) {
-            // ESP_LOGE(TAG, "Calibracion invalida (palabra %d = 0x%04X)", i, word);
             return ESP_ERR_INVALID_RESPONSE;
         }
     }
@@ -115,17 +107,16 @@ esp_err_t bmp180_init(bmp180_t *dev, i2c_port_t i2c_port, bmp180_mode_t mode) {
     dev->AC4 = (uint16_t)be16(&cal[6]);
     dev->AC5 = (uint16_t)be16(&cal[8]);
     dev->AC6 = (uint16_t)be16(&cal[10]);
-    dev->B1  = be16(&cal[12]);
-    dev->B2  = be16(&cal[14]);
-    dev->MB  = be16(&cal[16]);
-    dev->MC  = be16(&cal[18]);
-    dev->MD  = be16(&cal[20]);
+    dev->B1 = be16(&cal[12]);
+    dev->B2 = be16(&cal[14]);
+    dev->MB = be16(&cal[16]);
+    dev->MC = be16(&cal[18]);
+    dev->MD = be16(&cal[20]);
 
-    // ESP_LOGI(TAG, "BMP180 inicializado correctamente (chip id 0x%02X)", chip_id);
     return ESP_OK;
 }
 
-// Lee el valor crudo de temperatura (UT) sin compensar
+// Reed raw data temperature
 static esp_err_t bmp180_read_raw_temp(bmp180_t *dev, int32_t *ut) {
     esp_err_t err = bmp180_write_reg(dev, BMP180_REG_CTRL, BMP180_CMD_READ_TEMP);
     if (err != ESP_OK) return err;
@@ -140,13 +131,13 @@ static esp_err_t bmp180_read_raw_temp(bmp180_t *dev, int32_t *ut) {
     return ESP_OK;
 }
 
-// Lee el valor crudo de presion (UP) sin compensar, segun el OSS configurado
+// Reed raw data pressure
 static esp_err_t bmp180_read_raw_pressure(bmp180_t *dev, int32_t *up) {
     uint8_t cmd = BMP180_CMD_READ_PRESS | (dev->mode << 6);
     esp_err_t err = bmp180_write_reg(dev, BMP180_REG_CTRL, cmd);
     if (err != ESP_OK) return err;
 
-    // Tiempo de conversion segun el modo (datasheet, tabla 3)
+    // Time of convertion (datasheet, tab 3)
     static const uint8_t delay_ms[4] = { 5, 8, 14, 26 };
     vTaskDelay(pdMS_TO_TICKS(delay_ms[dev->mode]));
 
@@ -159,20 +150,20 @@ static esp_err_t bmp180_read_raw_pressure(bmp180_t *dev, int32_t *up) {
     return ESP_OK;
 }
 
-// Calcula B5 (valor intermedio compartido por temperatura y presion).
-// Devuelve BMP180_B5_INVALID si la calibracion da una division por cero.
+// Get B5 (val shared between pressure and temperature).
+// Return BMP180_B5_INVALID if calibration is X/0
 int32_t bmp180_compute_b5(const bmp180_t *dev, int32_t ut) {
     int32_t x1 = ((ut - (int32_t)dev->AC6) * (int32_t)dev->AC5) >> 15;
     int32_t den = x1 + dev->MD;
     if (den == 0) {
-        return BMP180_B5_INVALID;   // CHANGE 3
+        return BMP180_B5_INVALID;
     }
-    int32_t x2 = ((int32_t)dev->MC * 2048) / den;   // CHANGE 4: MC << 11
+    int32_t x2 = ((int32_t)dev->MC * 2048) / den;
     return x1 + x2;
 }
 
 void bmp180_compensate_temperature(int32_t b5, float *temperature_c) {
-    int32_t t = (b5 + 8) >> 4; // decimas de grado
+    int32_t t = (b5 + 8) >> 4;
     *temperature_c = t / 10.0f;
 }
 
@@ -193,7 +184,7 @@ esp_err_t bmp180_compensate_pressure(const bmp180_t *dev, int32_t b5,
     x3 = ((x1 + x2) + 2) >> 2;
     uint32_t b4 = ((uint32_t)dev->AC4 * (uint32_t)(x3 + 32768)) >> 15;
     if (b4 == 0) {
-        return ESP_ERR_INVALID_STATE;   // CHANGE 3: division by zero
+        return ESP_ERR_INVALID_STATE; // CHANGE 3: division by zero
     }
     uint32_t b7 = ((uint32_t)(up - b3)) * (50000UL >> dev->mode);
 
@@ -249,7 +240,7 @@ esp_err_t bmp180_read_pressure(bmp180_t *dev, int32_t *pressure_pa) {
 
 float bmp180_pressure_to_altitude(float pressure_pa, float sea_level_pa) {
     if (!(pressure_pa > 0.0f)) {
-        return NAN;   // 0 Pa, negative or NaN is not a valid reading
+        return NAN; // 0 Pa, negative or NaN is not a valid reading
     }
     if (sea_level_pa <= 0.0f) {
         sea_level_pa = 101325.0f;

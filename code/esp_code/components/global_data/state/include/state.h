@@ -40,11 +40,11 @@ typedef enum {
 } sm_states_t;
 
 typedef struct {
-    vec3_t pos;      // Position (m)
-    quat_t q;        // Orientation
-    vec3_t vel_lin;  // Vel lineal (m/s)
-    vec3_t vel_ang;  // Vel angular (°/s)
-    vec3_t acc_lin;  // Acc lineal (g)
+    vec3_t pos; // Position (m)
+    quat_t q; // Orientation
+    vec3_t vel_lin; // Vel lineal (m/s)
+    vec3_t vel_ang; // Vel angular (°/s)
+    vec3_t acc_lin; // Acc lineal (g)
     sm_states_t sm_state;
 } state_t;
 

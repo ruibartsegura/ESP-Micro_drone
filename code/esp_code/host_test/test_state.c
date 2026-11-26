@@ -176,7 +176,7 @@ void test_set_get_linear_acceleration(void) {
 }
 
 void test_set_get_timestamps_keep_64_bits(void) {
-    const int64_t big = 5000000000000LL;   /* > 2^32, 5000 s in ns */
+    const int64_t big = 5000000000000LL; /* > 2^32, 5000 s in ns */
     set_time_imu(big);
     set_time_height(big + 1);
     int64_t ti, th;
@@ -236,10 +236,10 @@ void test_set_get_global_state_is_a_copy(void) {
     set_h(1.0f);
     state_t s;
     get_global_state(&s);
-    s.pos.z = 99.0f;              /* changing the copy ... */
+    s.pos.z = 99.0f; /* changing the copy ... */
     vec3_t p;
     get_position(&p);
-    TEST_ASSERT_FLOAT_WITHIN(EPS, 1.0f, p.z);   /* ... does not change the state */
+    TEST_ASSERT_FLOAT_WITHIN(EPS, 1.0f, p.z); /* ... does not change the state */
 }
 
 /* ------------------------------------------------------------------ */

@@ -248,7 +248,7 @@ static bool is_init = false;
 // ============================================================
 // Pre-flight ping on demand
 static bool ping_requested = false;
-static int  ping_result    = 0; // 0 = pending, 1 = ok, -1 = fail
+static int ping_result = 0; // 0 = pending, 1 = ok, -1 = fail
 
 // Link with the agent: time of the last ping that was answered. The real
 // drone pings every LINK_PING_PERIOD_US also in flight; system.c starts the
@@ -258,12 +258,12 @@ static int64_t t_last_link_us = 0;
 
 #ifndef CONFIG_SIMULATION_ON
     #define LINK_PING_PERIOD_US  500000LL // 500 ms
-    #define LINK_PING_TIMEOUT_MS 100      // Max time that uros_task is stopped
+    #define LINK_PING_TIMEOUT_MS 100 // Max time that uros_task is stopped
     static int64_t t_last_ping_us = 0;
 #endif
 
 // ============================================================
-//                        App parameters                       
+//                        App parameters
 // ============================================================
 // Apply parameters if is necessary. The fields that were not filled in the
 // message are -1 (default value of Params.msg) and keep their value. If one
@@ -283,21 +283,21 @@ void apply_pending_params() {
             .vel_max = m.v_max,
         },
         .gains = {
-            .kp_h            = m.kp_h,
-            .kd_h            = m.kd_h,
-            .kp_vel          = m.kp_vel,
-            .kp_angle        = m.kp_angle,
-            .kp_rate         = m.kp_rate,
-            .ki_rate         = m.ki_rate,
-            .kp_yaw_rate     = m.kp_yaw_rate,
-            .max_rate        = m.max_rate,
-            .max_pow_rp      = m.max_pow_rp,
-            .base            = m.base,
-            .alpha           = m.alpha,
-            .max_angle       = m.max_angle,
-            .max_pow_yaw     = m.max_pow_yaw,
+            .kp_h = m.kp_h,
+            .kd_h = m.kd_h,
+            .kp_vel = m.kp_vel,
+            .kp_angle = m.kp_angle,
+            .kp_rate = m.kp_rate,
+            .ki_rate = m.ki_rate,
+            .kp_yaw_rate = m.kp_yaw_rate,
+            .max_rate = m.max_rate,
+            .max_pow_rp = m.max_pow_rp,
+            .base = m.base,
+            .alpha = m.alpha,
+            .max_angle = m.max_angle,
+            .max_pow_yaw = m.max_pow_yaw,
             .pitch_deviation = m.pitch_deviation,
-            .roll_deviation  = m.roll_deviation,
+            .roll_deviation = m.roll_deviation,
         },
         .odom = {
             .k_drag = m.k_drag,
@@ -506,7 +506,7 @@ void stamp_now(builtin_interfaces__msg__Time * stamp) {
         t_ns = esp_timer_get_time() * 1000LL; // us -> ns
     }
 #endif
-    stamp->sec     = (int32_t)(t_ns / 1000000000LL);
+    stamp->sec = (int32_t)(t_ns / 1000000000LL);
     stamp->nanosec = (uint32_t)(t_ns % 1000000000LL);
 }
 
@@ -591,12 +591,12 @@ void fill_state_msg(my_msgs__msg__State *out) {
     void motors_msg_init(void) {
         actuator_msgs__msg__Actuators__init(&motors_msg);
 
-        motors_msg.velocity.data     = motors_buf;
-        motors_msg.velocity.size     = NUM_MOTORS;
+        motors_msg.velocity.data = motors_buf;
+        motors_msg.velocity.size = NUM_MOTORS;
         motors_msg.velocity.capacity = NUM_MOTORS;
 
-        motors_msg.header.frame_id.data     = frame_id_buf;
-        motors_msg.header.frame_id.size     = strlen(frame_id_buf);
+        motors_msg.header.frame_id.data = frame_id_buf;
+        motors_msg.header.frame_id.size = strlen(frame_id_buf);
         motors_msg.header.frame_id.capacity = sizeof(frame_id_buf);
 
         motors_q = xQueueCreate(1, sizeof(motors_cmd_t));
@@ -617,7 +617,7 @@ void fill_state_msg(my_msgs__msg__State *out) {
         motors_cmd_t cmd;
 
         if (timer == NULL || !motors_pub_ready) return;
-        if (xQueueReceive(motors_q, &cmd, 0) != pdTRUE) return;  // nada nuevo
+        if (xQueueReceive(motors_q, &cmd, 0) != pdTRUE) return;
 
         for (int i = 0; i < NUM_MOTORS; i++) {
             motors_msg.velocity.data[i] = cmd.v[i];
@@ -737,10 +737,10 @@ void micro_ros_task(void * arg) {
     // Reliable: a lost message over WiFi is sent again by the agent. Only
     // reliable publishers wait for the ACK; a subscriber does not block the
     // executor (motors / imu in simulation use the best effort stream)
-    params_qos.reliability  = RMW_QOS_POLICY_RELIABILITY_RELIABLE;
-    params_qos.durability   = RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL;
-    params_qos.history      = RMW_QOS_POLICY_HISTORY_KEEP_LAST;
-    params_qos.depth        = 2;
+    params_qos.reliability = RMW_QOS_POLICY_RELIABILITY_RELIABLE;
+    params_qos.durability = RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL;
+    params_qos.history = RMW_QOS_POLICY_HISTORY_KEEP_LAST;
+    params_qos.depth = 2;
 
     // Init param sub
     RCCHECK(rclc_subscription_init(
@@ -827,7 +827,7 @@ void micro_ros_task(void * arg) {
         // Motors timer
         rcl_timer_t motors_timer;
         RCCHECK(rclc_timer_init_default2(&motors_timer, &support,
-                RCL_MS_TO_NS(15), motors_timer_callback, true));   // ~66 Hz
+                RCL_MS_TO_NS(15), motors_timer_callback, true)); // ~66 Hz
         RCCHECK(rclc_executor_add_timer(&executor, &motors_timer));
 
         // Simulation subs
@@ -897,7 +897,7 @@ void ros_init(void) {
     #endif
 
     #if defined(CONFIG_MICRO_ROS_ESP_NETIF_WLAN)
-        ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));   // sin ahorro de energía
+        ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     #endif
 
     xTaskCreate(micro_ros_task,
@@ -914,7 +914,7 @@ bool ros_test(void) {
     if (!is_init) return false;
 
     pthread_mutex_lock(&lock);
-    ping_result    = 0;
+    ping_result = 0;
     ping_requested = true;
     pthread_mutex_unlock(&lock);
 

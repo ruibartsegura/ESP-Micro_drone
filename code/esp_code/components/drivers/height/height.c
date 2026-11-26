@@ -34,7 +34,7 @@ static const char *TAG = "h_task";
 
 #define H_TASK_PERIOD_MS 10
 
-#define SEA_LEVEL_PA 101325.0f   // reference pressure for the altitude
+#define SEA_LEVEL_PA 101325.0f // reference pressure for the altitude
 
 static bool is_init = false;
 
@@ -81,8 +81,7 @@ static void h_sample() {
 
         // bmp180_read_pressure() already reads the temperature
         if (bmp180_read_pressure(&bmp, &pressure_pa) != ESP_OK) {
-            // ESP_LOGW(TAG, "Fallo leyendo el BMP180");
-            return; // se conserva el ultimo dato valido, no se pisa con basura
+            return; // keep last valid data
         }
 
         float alt = bmp180_pressure_to_altitude(pressure_pa, SEA_LEVEL_PA);
@@ -122,7 +121,6 @@ void height_init(void) {
 
     #ifndef CONFIG_SIMULATION_ON
         if (i2c_master_init() != ESP_OK) {
-            // ESP_LOGE(TAG, "Height not started");
             return;
         }
     #endif

@@ -23,7 +23,7 @@
 
 static float inv_sqrt(float x) {
     if (x <= 0.0f) {
-        return 0.0f; // evita div/0 o NaN si llega un vector nulo
+        return 0.0f; // avoid div/0 or NaN
     }
     return 1.0f / sqrtf(x);
 }
@@ -53,8 +53,6 @@ void quaternion_update(quat_t *q, float gx, float gy, float gz,
     float q_dot3 = 0.5f * (q->w * gy - q->x * gz + q->z * gx);
     float q_dot4 = 0.5f * (q->w * gz + q->x * gy - q->y * gx);
 
-    // Solo aplicamos la corrección del acelerómetro si la lectura es
-    // válida (evita 0/0 al normalizar).
     if (accel_norm_sq > 1.0e-6f) {
         float accel_inv_norm = inv_sqrt(accel_norm_sq);
         float ax_n = ax * accel_inv_norm;

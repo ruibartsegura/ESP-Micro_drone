@@ -51,9 +51,9 @@ EVENTS = [
 ]
 
 # Thresholds of the warnings
-FREE_CPU_LOW = 10.0   # % of IDLE
-STACK_LOW = 300       # bytes
-RATE_LOW = 0.90       # real frequency / target frequency
+FREE_CPU_LOW = 10.0 # % of IDLE
+STACK_LOW = 300 # bytes
+RATE_LOW = 0.90 # real frequency / target frequency
 
 
 def percentile(values, p):
@@ -69,7 +69,7 @@ def read_log(path):
     """Returns the CPU rows, the PERIOD rows and the events. A boot ends when
     the time of the drone goes back (or there is a reset line)."""
     cpu, periods, events = [], [], []
-    boot, last_t = 1, -1   # last_t = -1: no data yet in this boot
+    boot, last_t = 1, -1 # last_t = -1: no data yet in this boot
 
     with open(path, errors="replace") as f:
         for n_line, raw in enumerate(f, 1):
@@ -78,7 +78,7 @@ def read_log(path):
             for kind, rx in EVENTS:
                 if rx.search(line) and "DIAG:" not in line:
                     if kind == "reinicio" and last_t >= 0:
-                        boot += 1     # the ESP32 starts again
+                        boot += 1 # the ESP32 starts again
                         last_t = -1
                     m = ESP_TIME.match(line)
                     t = int(m.group(1)) / 1000 if m else max(last_t, 0) / 1000
@@ -95,7 +95,7 @@ def read_log(path):
             except ValueError:
                 continue
             if 0 <= t_ms < last_t:
-                boot += 1   # the time went back without a reset line
+                boot += 1 # the time went back without a reset line
             last_t = t_ms
 
             try:
@@ -112,7 +112,7 @@ def read_log(path):
                                     "max_ms": mx / 1000, "late": late,
                                     "late_pct": 100.0 * late / n if n else 0.0})
             except ValueError:
-                continue   # line cut by the monitor
+                continue # line cut by the monitor
     return cpu, periods, events
 
 

@@ -29,7 +29,7 @@
 #include "rmw_microros/time_sync.h"
 #include "mock_ros_msgs.h"
 
-void mock_task_exit(void);   /* mock_esp.c */
+void mock_task_exit(void); /* mock_esp.c */
 
 mock_ros_entity_t  mock_ros_entities[MOCK_ROS_MAX];
 int                mock_ros_entity_count;

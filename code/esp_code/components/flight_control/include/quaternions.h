@@ -22,13 +22,7 @@
 
 void quaternion_init(quat_t *q);
 
-/**
- * @brief Filtro Madgwick.
- * @param gx,gy,gz Velocidad angular en RAD/S
- * @param ax,ay,az Aceleración en cualquier unidad (se normaliza internamente),
- *                  típicamente en g o m/s².
- * @param dt        Delta de tiempo real en segundos desde la última llamada.
- */
+// Madgwick Filter.
 void quaternion_update(quat_t *q, float gx, float gy, float gz,
                         float ax, float ay, float az, float dt);
 

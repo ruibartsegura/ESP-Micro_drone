@@ -37,8 +37,8 @@ extern ledc_timer_config_t   mock_ledc_timer_conf;
 extern int                   mock_ledc_channel_config_calls;
 extern ledc_channel_config_t mock_ledc_channel_conf[LEDC_CHANNEL_MAX];
 extern int                   mock_ledc_channel_configured[LEDC_CHANNEL_MAX];
-extern uint32_t              mock_ledc_duty[LEDC_CHANNEL_MAX];      /* last ledc_set_duty()            */
-extern uint32_t              mock_ledc_out_duty[LEDC_CHANNEL_MAX];  /* duty applied by ledc_update_duty */
+extern uint32_t              mock_ledc_duty[LEDC_CHANNEL_MAX]; /* last ledc_set_duty()            */
+extern uint32_t              mock_ledc_out_duty[LEDC_CHANNEL_MAX]; /* duty applied by ledc_update_duty */
 extern int                   mock_ledc_set_calls[LEDC_CHANNEL_MAX];
 extern int                   mock_ledc_update_calls[LEDC_CHANNEL_MAX];
 

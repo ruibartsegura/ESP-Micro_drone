@@ -29,14 +29,14 @@
 
 // Real period of one task (filled by task_period_tick())
 typedef struct task_period {
-    const char *name;   // Name in the log
-    int period_ms;      // Period the task wants (its vTaskDelay)
-    bool registered;    // Already in the list of the log
-    int64_t t_last_us;  // Time of the last iteration
-    uint32_t n;         // Iterations in this window
-    uint32_t late;      // Iterations longer than 2 x period_ms
-    int64_t sum_us;     // Sum of the periods in this window
-    int64_t max_us;     // Longest period in this window
+    const char *name; // Name in the log
+    int period_ms; // Period the task wants (its vTaskDelay)
+    bool registered; // Already in the list of the log
+    int64_t t_last_us; // Time of the last iteration
+    uint32_t n; // Iterations in this window
+    uint32_t late; // Iterations longer than 2 x period_ms
+    int64_t sum_us; // Sum of the periods in this window
+    int64_t max_us; // Longest period in this window
 } task_period_t;
 
 #define TASK_PERIOD(name_, period_ms_) { .name = (name_), .period_ms = (period_ms_) }

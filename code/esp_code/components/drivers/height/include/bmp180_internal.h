@@ -25,17 +25,17 @@
 extern "C" {
 #endif
 
-// Paso 1 del datasheet (bmp180_get_ut -> B5): valor intermedio compartido
-// por la compensacion de temperatura y de presion.
+// Datasheet step 1 (bmp180_get_ut -> B5): intermediate value shared by
+// the temperature and pressure compensation.
 int32_t bmp180_compute_b5(const bmp180_t *dev, int32_t ut);
 
-// Paso 2a (BMP180_get_temperature): T = (B5+8)>>4, en decimas de grado,
-// convertido aqui a grados Celsius en temperature_c.
+// Step 2a (BMP180_get_temperature): T = (B5+8)>>4, in tenths of a degree,
+// converted here to degrees Celsius in temperature_c.
 void bmp180_compensate_temperature(int32_t b5, float *temperature_c);
 
-// Paso 2b (BMP180_calpressure): presion compensada en Pascales.
-// Devuelve ESP_ERR_INVALID_STATE si b4 calcularia una division por cero
-// (coeficientes de calibracion invalidos).
+// Step 2b (BMP180_calpressure): compensated pressure in Pascals.
+// Returns ESP_ERR_INVALID_STATE if b4 would give a division by zero
+// (invalid calibration coefficients).
 esp_err_t bmp180_compensate_pressure(const bmp180_t *dev, int32_t b5,
                                       int32_t up, int32_t *pressure_pa);
 

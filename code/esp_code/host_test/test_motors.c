@@ -6,8 +6,9 @@
  * Description:
  *   Unit tests for motors.c (host, no hardware). The file is built twice:
  *     - motors_hw:  real drone, the motors are driven with LEDC (PWM).
- *                   The power is a percentage (0..100 %).
- *     - motors_sim: CONFIG_SIMULATION_ON, the power is published to ROS
+ *                   The speed (rad/s, 0..MAX_POWER) is turned into a duty
+ *                   with the curve of vel_2_percent().
+ *     - motors_sim: CONFIG_SIMULATION_ON, the speed is published to ROS
  *                   with pub_motor_speed() (mocked here). Range 0..MAX_POWER.
  *   They check the arming, the limits of the power, the stop and the
  *   motor test.
@@ -37,7 +38,7 @@
 #endif
 #include MODULE_SRC
 
-#define MAX_DUTY ((1u << LEDC_DUTY_RES) - 1)   /* 1023 */
+#define MAX_DUTY ((1u << LEDC_DUTY_RES) - 1) /* 1023 */
 
 #ifdef CONFIG_SIMULATION_ON
 /* ------------------------------------------------------------------ */
@@ -62,8 +63,20 @@ static double motor_out(int i) {
 #define HALF     (MAX_POWER / 2.0)
 #else
 static double motor_out(int i) { return (double)mock_ledc_out_duty[motor_channel[i]]; }
-#define FULL     100.0
-#define HALF     50.0
+#define FULL     ((double)MAX_POWER)
+#define HALF     (MAX_POWER / 2.0)
+
+/* Duty expected for a speed (rad/s). Own copy of the curve of the driver:
+ * 0 -> 0 %, linear to 45 % at the hover speed (600 rad/s), linear to 100 %
+ * at 1500 rad/s, and 100 % above. */
+static uint32_t expected_duty(double w) {
+    double pct;
+    if (!(w > 0.0))      pct = 0.0;
+    else if (w >= 1500.0) pct = 100.0;
+    else if (w <= 600.0)  pct = 45.0 * w / 600.0;
+    else                  pct = 45.0 + 55.0 * (w - 600.0) / 900.0;
+    return (uint32_t)(pct * MAX_DUTY / 100.0);
+}
 #endif
 
 static void reset_module(void) {
@@ -94,7 +107,7 @@ void tearDown(void) {}
 /* ------------------------------------------------------------------ */
 void test_init_4_motors(void) {
     TEST_ASSERT_EQUAL_INT(4, N_MOTORS);
-    TEST_ASSERT_EQUAL_INT(N_MOTORS, NUM_MOTORS);   /* motors.h and ros_coordinator.h must agree */
+    TEST_ASSERT_EQUAL_INT(N_MOTORS, NUM_MOTORS); /* motors.h and ros_coordinator.h must agree */
 }
 
 void test_init_twice_is_harmless(void) {
@@ -160,7 +173,7 @@ void test_arm_armed_motors_get_the_power(void) {
 #ifdef CONFIG_SIMULATION_ON
     for (int i = 0; i < N_MOTORS; i++) TEST_ASSERT_EQUAL_DOUBLE(HALF, motor_out(i));
 #else
-    for (int i = 0; i < N_MOTORS; i++) TEST_ASSERT_EQUAL_UINT32(50 * MAX_DUTY / 100, (uint32_t)motor_out(i));
+    for (int i = 0; i < N_MOTORS; i++) TEST_ASSERT_EQUAL_UINT32(expected_duty(HALF), (uint32_t)motor_out(i));
 #endif
 }
 
@@ -183,7 +196,7 @@ void test_speed_each_motor_gets_its_own_value(void) {
 #ifdef CONFIG_SIMULATION_ON
         TEST_ASSERT_DOUBLE_WITHIN(1e-9, FULL * 0.1 * (i + 1), motor_out(i));
 #else
-        TEST_ASSERT_UINT32_WITHIN(1, (uint32_t)(MAX_DUTY * 0.1 * (i + 1)), (uint32_t)motor_out(i));
+        TEST_ASSERT_UINT32_WITHIN(1, expected_duty(FULL * 0.1 * (i + 1)), (uint32_t)motor_out(i));
 #endif
     }
 }
@@ -208,6 +221,19 @@ void test_speed_maximum_is_full_power(void) {
 #endif
 }
 
+#ifndef CONFIG_SIMULATION_ON
+/* Points of the curve rad/s -> % of the real motors */
+void test_speed_hw_curve_rads_to_duty(void) {
+    const double   w[]    = { 0.0, 300.0, 600.0, 1050.0, 1500.0, 2000.0 };
+    const uint32_t duty[] = { 0, 230, 460, 741, MAX_DUTY, MAX_DUTY }; /* 0, 22.5, 45, 72.5, 100, 100 % */
+    arm_motors();
+    for (int k = 0; k < 6; k++) {
+        set_all(w[k]);
+        for (int i = 0; i < N_MOTORS; i++) TEST_ASSERT_UINT32_WITHIN(1, duty[k], (uint32_t)motor_out(i));
+    }
+}
+#endif
+
 void test_speed_negative_is_zero(void) {
     /* The controller can ask for negative values (more than the
      * collective thrust); a motor cannot spin backwards. */
@@ -217,7 +243,7 @@ void test_speed_negative_is_zero(void) {
 }
 
 void test_speed_huge_value_does_not_wrap_around(void) {
-    /* Converting 300 % to an 8-bit integer would give 44 %: it must stay full. */
+    /* A huge value converted to a small integer could wrap around: it must stay full. */
     arm_motors();
     double p[N_MOTORS] = { 1e6, FULL * 3, FULL + 156.0, 1e9 };
     set_motor_speed(p);
@@ -263,8 +289,8 @@ void test_stop_all_sets_every_motor_to_zero(void) {
 void test_stop_all_works_even_when_armed(void) {
     arm_motors();
     motors_stop_all();
-    TEST_ASSERT_TRUE(drone_armed);   /* stop does not disarm ... */
-    for (int i = 0; i < N_MOTORS; i++) TEST_ASSERT_EQUAL_DOUBLE(0.0, motor_out(i));   /* ... but stops */
+    TEST_ASSERT_TRUE(drone_armed); /* stop does not disarm ... */
+    for (int i = 0; i < N_MOTORS; i++) TEST_ASSERT_EQUAL_DOUBLE(0.0, motor_out(i)); /* ... but stops */
 }
 
 /* ------------------------------------------------------------------ */
@@ -289,7 +315,7 @@ void test_mtest_ends_with_testing_mode_off(void) {
     TEST_ASSERT_FALSE(is_testing);
     arm_motors();
     set_all(HALF);
-    TEST_ASSERT_TRUE(motor_out(0) > 0.0);   /* set_motor_speed works again */
+    TEST_ASSERT_TRUE(motor_out(0) > 0.0); /* set_motor_speed works again */
 }
 
 #ifdef CONFIG_SIMULATION_ON
@@ -390,6 +416,9 @@ int main(void) {
     RUN_TEST(test_speed_each_motor_gets_its_own_value);
     RUN_TEST(test_speed_over_the_maximum_is_limited);
     RUN_TEST(test_speed_maximum_is_full_power);
+#ifndef CONFIG_SIMULATION_ON
+    RUN_TEST(test_speed_hw_curve_rads_to_duty);
+#endif
     RUN_TEST(test_speed_negative_is_zero);
     RUN_TEST(test_speed_huge_value_does_not_wrap_around);
     RUN_TEST(test_speed_nan_is_zero);

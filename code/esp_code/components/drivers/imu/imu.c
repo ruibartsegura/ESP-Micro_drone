@@ -31,18 +31,15 @@
 
 #define DEG_TO_RAD (float)(M_PI / 180.0)
 
-// Frecuencia de muestreo/filtrado interna, independiente de a que
-// ritmo se publique por ROS. 100Hz es un buen punto de partida para
-// un Madgwick con MPU6050 en un dron pequeno.
 #define IMU_TASK_PERIOD_MS 5 // 200 Hz, the rate of the attitude controller
 
 static bool is_init = false;
 
 // With simulation skip this params
 #ifndef CONFIG_SIMULATION_ON
-    // Bias de calibracion (constantes tras imu_init(), no necesitan lock)
+    // Bias of calibration
     static float accel_bias[3] = {0.0f, 0.0f, 0.0f};
-    static float gyro_bias[3]  = {0.0f, 0.0f, 0.0f};
+    static float gyro_bias[3] = {0.0f, 0.0f, 0.0f};
 
 #endif
 
@@ -176,7 +173,6 @@ void imu_init(void) {
             return;
         }
 
-        // Calibrate the MPU6050 (el dron debe estar quieto y nivelado aqui)
         ret = mpu6050_calibrate(I2C_MASTER_NUM, accel_bias, gyro_bias);
 
         // If everything is ok, continue

@@ -28,7 +28,6 @@
 
 
 typedef struct roll_pitch_yaw {
-    // Valores convertidos a unidades físicas
     float roll;
     float pitch;
     float yaw;

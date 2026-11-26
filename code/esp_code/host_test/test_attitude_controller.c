@@ -107,7 +107,7 @@ void set_motor_speed(double power[N_MOTORS]) {
 /* ------------------------------------------------------------------ */
 /*                              HELPERS                               */
 /* ------------------------------------------------------------------ */
-#define DT_NS 15000000LL   /* 15 ms, period of the task */
+#define DT_NS 15000000LL /* 15 ms, period of the task */
 #define BASE  ((double)THROTTLE_BASE)
 
 typedef struct { double h, r, p, y; } Mix;
@@ -122,7 +122,7 @@ static Mix decompose(void) {
 }
 
 static int64_t t_now;
-static float   baro;   /* height of the fake barometer (m) */
+static float   baro; /* height of the fake barometer (m) */
 
 /* The barometer task writes the height in the state every 10 ms, faster
  * than the controller (15 ms), so step() writes it again before each cycle. */
@@ -148,7 +148,7 @@ static void step(void) {
 }
 
 /* n control cycles: lets the height filter converge to the barometer. */
-#define SETTLE_STEPS 600   /* 9 s */
+#define SETTLE_STEPS 600 /* 9 s */
 static void settle(void) {
     for (int i = 0; i < SETTLE_STEPS; i++) step();
 }
@@ -181,7 +181,7 @@ void setUp(void) {
     hover_w_h = 0.0f;
     emrg_drop = 0.0f;
     last_motor_power = 0.0f;
-    mock_time_us = 1000000;  /* 1 s */
+    mock_time_us = 1000000; /* 1 s */
     /* No velocity limit, so the tests of the velocity loop see the gains
      * alone. The test_vlim_* tests use the real v_max. */
     set_max_velocity(1000.0f);
@@ -191,7 +191,7 @@ void setUp(void) {
         default_gains_saved = true;
     }
     set_gains(&default_gains);
-    t_now = 1000000000LL;   /* 1 s */
+    t_now = 1000000000LL; /* 1 s */
     /* Height filter already started, with the ground at 0 m */
     h_init = true;
     h0 = 0.0f;
@@ -200,7 +200,7 @@ void setUp(void) {
     last_t_h = t_now;
     last_rpy.t_stamp = t_now;
     set_time_imu(t_now);
-    set_tilt(0, 0);         /* level, +1 g on Z */
+    set_tilt(0, 0); /* level, +1 g on Z */
     i_roll = 0.0f;
     i_pitch = 0.0f;
     last_t_ctrl = t_now;
@@ -289,8 +289,8 @@ void test_est_one_step_of_the_accel_is_2_percent(void) {
 
 void test_est_gyro_is_integrated_with_the_timestamps(void) {
     float r, p;
-    set_vel_ang(10.0f, -20.0f, 0.0f);   /* deg/s */
-    t_now += 10000000LL;                /* 10 ms */
+    set_vel_ang(10.0f, -20.0f, 0.0f); /* deg/s */
+    t_now += 10000000LL; /* 10 ms */
     set_time_imu(t_now);
     get_roll_pitch(&r, &p);
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, ALPHA * 0.1f, r);
@@ -438,7 +438,7 @@ void test_ext_grows_with_the_speed(void) {
     for (double v = 0.0; v <= 10.0; v += 0.25) {
         float r, p;
         cmd_vel_2_RP(&r, &p, vel(v, 0));
-        float tilt = fabsf(r) + fabsf(p);   /* does not depend on the axis */
+        float tilt = fabsf(r) + fabsf(p); /* does not depend on the axis */
         TEST_ASSERT_TRUE(tilt >= prev);
         prev = tilt;
     }
@@ -548,7 +548,7 @@ void test_vlim_above_the_limit_goes_to_v_max(void) {
     cmd_vel_2_RP(&r, &p, vel(2.0, 0));
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, KP_VEL * 0.5f, p);
     cmd_vel_2_RP(&r, &p, vel(0, -2.0));
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, KP_VEL * 0.5f, r);   /* -y -> +roll */
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, KP_VEL * 0.5f, r); /* -y -> +roll */
 }
 
 /* The module is limited, not each axis: in diagonal each axis is v_max / sqrt(2)
@@ -561,7 +561,7 @@ void test_vlim_limits_the_module_and_keeps_the_direction(void) {
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, KP_VEL * each, p);
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, -KP_VEL * each, r);
 
-    cmd_vel_2_RP(&r, &p, vel(3.0, -4.0));             /* module 5, 3-4-5 */
+    cmd_vel_2_RP(&r, &p, vel(3.0, -4.0)); /* module 5, 3-4-5 */
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, KP_VEL * 0.3f, p);
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, KP_VEL * 0.4f, r);
 }
@@ -628,7 +628,7 @@ void test_int_at_target_height_motors_get_the_hover_throttle(void) {
 }
 
 void test_int_roll_rate_error_only_moves_the_roll_channel(void) {
-    set_vel_ang(-10.0f, 0, 0);   /* the drone rolls at -10 deg/s, it should be 0 */
+    set_vel_ang(-10.0f, 0, 0); /* the drone rolls at -10 deg/s, it should be 0 */
     step_same_time();
     Mix c = decompose();
     TEST_ASSERT_DOUBLE_WITHIN(1e-3, KP_RATE * 10.0, c.r);
@@ -665,7 +665,7 @@ void test_int_yaw_power_is_limited_to_max_pow_yaw(void) {
 }
 
 void test_int_yaw_follows_cmd_vel_angular_z(void) {
-    mock_target.cmd_vel.angular.z = 0.5;   /* rad/s, small so it is not limited by MAX_POW_YAW */
+    mock_target.cmd_vel.angular.z = 0.5; /* rad/s, small so it is not limited by MAX_POW_YAW */
     step_same_time();
     Mix c = decompose();
     TEST_ASSERT_DOUBLE_WITHIN(0.1, KP_YAW_RATE * DEG(0.5), c.y);
@@ -819,7 +819,7 @@ void test_h_not_reached_outside_diff_h_allowed(void) {
 /* At the target, but it has to stay there TIME_H_STABLE_MS (500 ms). */
 void test_h_reached_only_after_time_h_stable(void) {
     TEST_ASSERT_EQUAL_INT(500, TIME_H_STABLE_MS);
-    mock_target.h = 0.0f;   /* already at the target (ground = 0 m) */
+    mock_target.h = 0.0f; /* already at the target (ground = 0 m) */
     int steps = 0;
     while (!check_h_reached() && steps < 100) { step(); steps++; }
     /* 500 ms / 15 ms = 33.3 -> reached in the cycle 35 (the first one starts the timer) */
@@ -831,7 +831,7 @@ void test_h_not_reached_while_the_vertical_velocity_is_high(void) {
     mock_target.h = 0.0f;
     settle();
     TEST_ASSERT_TRUE(check_h_reached());
-    last_vel_z = 2.0f * V_STABLE;   /* moving up/down at the target height */
+    last_vel_z = 2.0f * V_STABLE; /* moving up/down at the target height */
     step_same_time();
     TEST_ASSERT_FALSE(check_h_reached());
 }
@@ -840,11 +840,11 @@ void test_h_leaving_the_target_restarts_the_timer(void) {
     mock_target.h = 0.0f;
     settle();
     TEST_ASSERT_TRUE(check_h_reached());
-    mock_target.h = 1.0f;   /* new target, far away */
+    mock_target.h = 1.0f; /* new target, far away */
     step();
     TEST_ASSERT_FALSE(check_h_reached());
     TEST_ASSERT_EQUAL_INT64(-1, t_h_reached_us);
-    mock_target.h = 0.0f;   /* back at the target: wait again */
+    mock_target.h = 0.0f; /* back at the target: wait again */
     step();
     TEST_ASSERT_FALSE(check_h_reached());
 }
@@ -859,7 +859,7 @@ void test_h_control_does_not_overwrite_the_barometer(void) {
     set_baro(600.0f);
     h_init = false;
     set_time_height(t_now);
-    step();                 /* first sample: ground = 600 m */
+    step(); /* first sample: ground = 600 m */
     set_baro(600.5f);
     step();
     vec3_t p;
@@ -958,7 +958,7 @@ void test_h_reset_releases_the_lock(void) {
 /* ------------------------------------------------------------------ */
 void test_hest_waits_for_the_first_barometer_sample(void) {
     h_init = false;
-    set_baro(600.0f);          /* no barometer time yet */
+    set_baro(600.0f); /* no barometer time yet */
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, get_h(0, 0));
     TEST_ASSERT_FALSE(h_init);
 }
@@ -1027,14 +1027,14 @@ static float height_after(int64_t step_ns, int steps) {
 }
 
 void test_hest_correction_does_not_depend_on_the_frequency(void) {
-    float fast = height_after(5000000LL, 60);    /* 60 x 5 ms */
-    float slow = height_after(15000000LL, 20);   /* 20 x 15 ms */
+    float fast = height_after(5000000LL, 60); /* 60 x 5 ms */
+    float slow = height_after(15000000LL, 20); /* 20 x 15 ms */
     TEST_ASSERT_TRUE(fast > 0.1f);
     TEST_ASSERT_FLOAT_WITHIN(0.05f * fast, slow, fast);
 }
 
 void test_hest_upward_acceleration_gives_upward_velocity(void) {
-    set_acc_lin(0, 0, 1.5f);   /* +0.5 g over the gravity */
+    set_acc_lin(0, 0, 1.5f); /* +0.5 g over the gravity */
     for (int i = 0; i < 10; i++) step();
     TEST_ASSERT_TRUE(last_vel_z > 0.0f);
     TEST_ASSERT_TRUE(h_est > 0.0f);
@@ -1043,7 +1043,7 @@ void test_hest_upward_acceleration_gives_upward_velocity(void) {
 void test_hest_integrates_with_the_imu_time_in_s(void) {
     /* One step of 15 ms at +1 g over the gravity, barometer still at 0 */
     set_acc_lin(0, 0, 2.0f);
-    step_same_time();          /* dt = 0: nothing is integrated */
+    step_same_time(); /* dt = 0: nothing is integrated */
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, last_vel_z);
     step();
     float dt = DT_NS / 1e9f;
@@ -1053,7 +1053,7 @@ void test_hest_integrates_with_the_imu_time_in_s(void) {
 
 void test_hest_long_dt_is_ignored(void) {
     set_acc_lin(0, 0, 2.0f);
-    t_now += 1000000000LL;     /* 1 s without IMU data */
+    t_now += 1000000000LL; /* 1 s without IMU data */
     step();
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, last_vel_z);
 }
@@ -1162,7 +1162,7 @@ void test_task_controls_every_cycle(void) {
 /* ------------------------------------------------------------------ */
 void test_i_accumulates_the_rate_error_while_flying(void) {
     set_sm_state(HOVERING);
-    set_vel_ang(-10.0f, 0, 0);          /* roll rate error of ~+10 deg/s */
+    set_vel_ang(-10.0f, 0, 0); /* roll rate error of ~+10 deg/s */
     step();
     float dt = DT_NS / 1e9f;
     TEST_ASSERT_FLOAT_WITHIN(0.003f, ROLL_DEVIATION + KI_RATE * 10.0f * dt, i_roll);
@@ -1177,7 +1177,7 @@ void test_i_roll_starts_with_the_roll_deviation(void) {
     k.roll_deviation = 7.0f;
     set_gains(&k);
     set_sm_state(HOVERING);
-    step();                              /* no rate error */
+    step(); /* no rate error */
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 7.0f, i_roll);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, PITCH_DEVIATION, i_pitch);
 }

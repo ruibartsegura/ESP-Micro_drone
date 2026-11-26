@@ -45,7 +45,7 @@ void disarm_motors(void);
 void init_motors(void);
 bool motors_test(void); // Check leds
 
-// Power of each motor: 0..100 % on the real drone, 0..MAX_POWER in simulation.
+// Speed of each motor (rad/s): 0..MAX_POWER, on the real drone and in simulation.
 // The values are limited, and NaN or negative values become 0.
 void set_motor_speed(double power[N_MOTORS]);
 

@@ -164,7 +164,7 @@ void test_init_detects_the_bmp180(void) {
     height_init();
     TEST_ASSERT_TRUE(mock_i2c_log_len > 0);
     TEST_ASSERT_EQUAL_HEX8(BMP_ADDR, mock_i2c_log[0].addr);
-    TEST_ASSERT_EQUAL_HEX8(0xD0, mock_i2c_log[0].reg);   /* chip id */
+    TEST_ASSERT_EQUAL_HEX8(0xD0, mock_i2c_log[0].reg); /* chip id */
 }
 
 void test_init_no_error_check_failure_when_all_is_ok(void) {
@@ -177,7 +177,7 @@ void test_init_no_error_check_failure_when_all_is_ok(void) {
  * i2c_driver_install() fails because the port is already installed, and
  * ESP_ERROR_CHECK() resets the ESP32. */
 void test_init_works_when_the_imu_already_installed_the_bus(void) {
-    i2c_driver_install(I2C_NUM_0, I2C_MODE_SLAVE + 1, 0, 0, 0);   /* the IMU did it before */
+    i2c_driver_install(I2C_NUM_0, I2C_MODE_SLAVE + 1, 0, 0, 0); /* the IMU did it before */
     height_init();
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, mock_esp_error_check_fails,
         "a bus already installed by the IMU must not abort the program");
@@ -188,7 +188,7 @@ void test_init_works_when_the_imu_already_installed_the_bus(void) {
  * vTaskDelete(NULL): it deletes the task that called height_init(), that is
  * the system task (state machine). The error must be returned instead. */
 void test_init_missing_sensor_does_not_delete_the_calling_task(void) {
-    mock_i2c_regs[BMP_ADDR][0xD0] = 0x00;   /* wrong chip id */
+    mock_i2c_regs[BMP_ADDR][0xD0] = 0x00; /* wrong chip id */
     height_init();
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, mock_task_delete_calls, "the system task must not be deleted");
 }
@@ -220,12 +220,12 @@ void test_sample_saves_the_altitude_in_the_state(void) {
     vec3_t p;
     get_position(&p);
     TEST_ASSERT_FLOAT_WITHIN(1.0f, expected_alt(), p.z);
-    TEST_ASSERT_TRUE(p.z > 2900.0f && p.z < 3100.0f);   /* 69964 Pa = ~3 km */
+    TEST_ASSERT_TRUE(p.z > 2900.0f && p.z < 3100.0f); /* 69964 Pa = ~3 km */
 }
 
 void test_sample_uses_sea_level_as_reference(void) {
     height_init();
-    fake_up = 23843;   /* any pressure */
+    fake_up = 23843; /* any pressure */
     h_sample();
     vec3_t p;
     get_position(&p);
@@ -236,7 +236,7 @@ void test_sample_uses_sea_level_as_reference(void) {
 
 void test_sample_saves_the_time_in_nanoseconds(void) {
     height_init();
-    mock_time_us = 2500000;   /* 2.5 s */
+    mock_time_us = 2500000; /* 2.5 s */
     h_sample();
     int64_t t;
     get_time_height(&t);
@@ -258,7 +258,7 @@ void test_sample_sensor_error_keeps_the_last_value(void) {
     h_sample();
     vec3_t before;
     get_position(&before);
-    mock_i2c_fail_from = mock_i2c_transactions + 1;   /* every next read fails */
+    mock_i2c_fail_from = mock_i2c_transactions + 1; /* every next read fails */
     set_time_height(42);
     h_sample();
     vec3_t after;
@@ -274,7 +274,7 @@ void test_sample_higher_pressure_lower_altitude(void) {
     h_sample();
     vec3_t a;
     get_position(&a);
-    fake_up = 26000;   /* more pressure */
+    fake_up = 26000; /* more pressure */
     h_sample();
     vec3_t b;
     get_position(&b);
@@ -296,7 +296,7 @@ void test_task_period_is_10_ms(void) {
     mock_delay_hook = count_period;
     mock_run_task(bmp180_task, NULL, 40);
 #ifdef CONFIG_SIMULATION_ON
-    TEST_ASSERT_EQUAL_INT(40, delays_of_10ms);   /* in simulation the task only waits */
+    TEST_ASSERT_EQUAL_INT(40, delays_of_10ms); /* in simulation the task only waits */
 #else
     /* The conversions of the BMP180 (5 + 8 ms) already take more than the
      * period: xTaskDelayUntil() does not add more (with vTaskDelay it was
@@ -313,7 +313,7 @@ void test_task_simulation_does_not_touch_the_state(void) {
     mock_run_task(bmp180_task, NULL, 10);
     vec3_t p;
     get_position(&p);
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.23f, p.z);   /* in simulation ROS writes the height */
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.23f, p.z); /* in simulation ROS writes the height */
 }
 #else
 void test_task_reads_the_sensor_every_cycle(void) {

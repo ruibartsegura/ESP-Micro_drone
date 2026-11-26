@@ -38,17 +38,16 @@ static volatile bool drone_armed = false;
 static bool is_init = false;
 static volatile bool is_testing = false;
 
+// Limits of the motor command (rad/s), in simulation and on the real drone
+#define TEST_POWER  2390
+#define MAX_POWER   3000
+
 // GPIO pin and LEDC channel are just used with real drone, no simulation
-#ifdef CONFIG_SIMULATION_ON
-    #define TEST_POWER  2390
-    #define MAX_POWER   3000
-#else
-    #define TEST_POWER  100
-    #define MAX_POWER   100
+#ifndef CONFIG_SIMULATION_ON
     #define VEL_MAX_RADS    1500.0
     #define VEL_HOVER_RADS   600.0
-    #define POWER_HOVER_PCT     45.0
-    #define POWER_MIN_PCT        0.0
+    #define POWER_HOVER_PCT     45.0 // Min power to get hover 
+    #define POWER_MIN_PCT        0.0 // Min power to move the motors
 
     static const gpio_num_t motor_gpio[N_MOTORS] = {
         MOTOR_1,
@@ -66,7 +65,8 @@ static volatile bool is_testing = false;
 #endif
 
 static double limit_power(double power, double max) {
-    if (!(power > 0.0)) {   // also true for NaN
+    // also true for NaN
+    if (!(power > 0.0)) {
         return 0.0;
     }
     if (power > max) {
@@ -81,12 +81,9 @@ static double vel_2_percent(double vel) {
     if (vel >= VEL_MAX_RADS) return 100.0;
 
     if (vel <= VEL_HOVER_RADS) {
-        return POWER_MIN_PCT
-             + (POWER_HOVER_PCT - POWER_MIN_PCT) * vel / VEL_HOVER_RADS;
+        return POWER_MIN_PCT + (POWER_HOVER_PCT - POWER_MIN_PCT) * vel / VEL_HOVER_RADS;
     }
-    return POWER_HOVER_PCT
-         + (100.0 - POWER_HOVER_PCT)
-           * (vel - VEL_HOVER_RADS) / (VEL_MAX_RADS - VEL_HOVER_RADS);
+    return POWER_HOVER_PCT + (100.0 - POWER_HOVER_PCT) * (vel - VEL_HOVER_RADS) / (VEL_MAX_RADS - VEL_HOVER_RADS);
 }
 #endif
 
@@ -96,7 +93,7 @@ static void write_motors(const double power[N_MOTORS]) {
     #else
         const uint32_t max_duty = (1u << LEDC_DUTY_RES) - 1;
         for (int x = 0; x < N_MOTORS; x++) {
-            double percent = vel_2_percent(power[x]);   // <-- aquí
+            double percent = vel_2_percent(power[x]);
             uint32_t duty = (uint32_t)(percent * max_duty / 100.0);
             ledc_set_duty(LEDC_MODE, motor_channel[x], duty);
             ledc_update_duty(LEDC_MODE, motor_channel[x]);
@@ -137,27 +134,27 @@ void init_motors(void) {
         return;
     }
 
-    // With simulation no need to declare the timers for LEDC...
+    // With simulation no need to declare the timers for LEDC
     #ifndef CONFIG_SIMULATION_ON
         // One timer shared for the 4 motors
         ledc_timer_config_t timer_conf = {
-            .speed_mode      = LEDC_MODE,
-            .timer_num       = LEDC_TIMER,
+            .speed_mode = LEDC_MODE,
+            .timer_num = LEDC_TIMER,
             .duty_resolution = LEDC_DUTY_RES,
-            .freq_hz         = LEDC_FREQUENCY,
-            .clk_cfg         = LEDC_AUTO_CLK
+            .freq_hz = LEDC_FREQUENCY,
+            .clk_cfg = LEDC_AUTO_CLK
         };
         ledc_timer_config(&timer_conf);
 
         // One chanel for motor, all pointing same timer
         for (int i = 0; i < N_MOTORS; i++) {
             ledc_channel_config_t channel_conf = {
-                .gpio_num   = motor_gpio[i],
+                .gpio_num = motor_gpio[i],
                 .speed_mode = LEDC_MODE,
-                .channel    = motor_channel[i],
-                .timer_sel  = LEDC_TIMER,
-                .duty       = 0, // arranca apagado
-                .hpoint     = 0
+                .channel = motor_channel[i],
+                .timer_sel = LEDC_TIMER,
+                .duty = 0,
+                .hpoint = 0
             };
             ledc_channel_config(&channel_conf);
         }

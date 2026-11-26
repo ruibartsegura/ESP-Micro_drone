@@ -27,11 +27,11 @@
 extern "C" {
 #endif
 
-// Direccion I2C fija del BMP180 (7 bits)
+// Fixed I2C address of the BMP180 (7 bits)
 #define BMP180_I2C_ADDR 0x77
 
-// Modo de sobremuestreo de presion (OSS). A mayor valor, mas precision
-// pero mas tiempo de conversion.
+// Pressure oversampling mode (OSS). A higher value gives more precision
+// but a longer conversion time.
 typedef enum {
     BMP180_MODE_ULTRA_LOW_POWER = 0, // 4.5 ms
     BMP180_MODE_STANDARD        = 1, // 7.5 ms
@@ -39,48 +39,37 @@ typedef enum {
     BMP180_MODE_ULTRA_HIGH_RES  = 3, // 25.5 ms
 } bmp180_mode_t;
 
-// Handle con el puerto I2C y los coeficientes de calibracion leidos del sensor
+// Handle with the I2C port and the calibration coefficients read from the sensor
 typedef struct {
     i2c_port_t i2c_port;
     bmp180_mode_t mode;
 
-    // Coeficientes de calibracion (EEPROM interna del sensor, se leen una
-    // sola vez en el init)
+    // Calibration coefficients (internal EEPROM of the sensor, read only
+    // once in the init)
     int16_t AC1, AC2, AC3;
     uint16_t AC4, AC5, AC6;
     int16_t B1, B2;
     int16_t MB, MC, MD;
 } bmp180_t;
 
-/**
- * @brief Inicializa el sensor: comprueba el chip id y lee los coeficientes
- *        de calibracion.
- *
- * @param dev        Puntero a la estructura de handle (la rellena esta funcion)
- * @param i2c_port   Puerto I2C ya configurado e instalado (i2c_param_config +
- *                   i2c_driver_install) por el llamador
- * @param mode       Modo de sobremuestreo a usar en las lecturas de presion
- */
+
+// Initialises the sensor: checks the chip id and reads the
+// calibration coefficients.
 esp_err_t bmp180_init(bmp180_t *dev, i2c_port_t i2c_port, bmp180_mode_t mode);
 
-/**
- * @brief Lee la temperatura compensada en grados Celsius.
- */
+// Reads the compensated temperature in degrees Celsius.
 esp_err_t bmp180_read_temperature(bmp180_t *dev, float *temperature_c);
 
-/**
- * @brief Lee la presion compensada en Pascales.
- *
- * Internamente lee tambien la temperatura, porque la formula de
- * compensacion de presion del BMP180 la necesita.
- */
+
+// Reads the compensated pressure in Pascals.
+// It also reads the temperature, because the pressure compensation
+// formula of the BMP180 needs it.
 esp_err_t bmp180_read_pressure(bmp180_t *dev, int32_t *pressure_pa);
 
-/**
- * @brief Calcula la altitud aproximada en metros a partir de la presion
- *        medida y una presion de referencia a nivel del mar (por defecto
- *        101325 Pa). Devuelve NaN si la presion es <= 0.
- */
+
+// Computes the approximate altitude in metres from the measured
+// pressure and a sea level reference pressure (101325 Pa by
+// default). Returns NaN if the pressure is <= 0.
 float bmp180_pressure_to_altitude(float pressure_pa, float sea_level_pa);
 
 #ifdef __cplusplus

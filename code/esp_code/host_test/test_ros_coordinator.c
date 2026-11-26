@@ -77,7 +77,7 @@ static my_msgs__srv__SetAltitude_Response call_set_altitude(float alt) {
     my_msgs__srv__SetAltitude_Request req = { .altitude = alt };
     my_msgs__srv__SetAltitude_Response res;
     memset(&res, 0, sizeof res);
-    res.accepted = !false;   /* garbage: the callback must write it */
+    res.accepted = !false; /* garbage: the callback must write it */
     set_altitude_callback(&req, &res);
     return res;
 }
@@ -86,7 +86,7 @@ static std_srvs__srv__Trigger_Response call_land(void) {
     std_srvs__srv__Trigger_Request req = { 0 };
     std_srvs__srv__Trigger_Response res;
     memset(&res, 0, sizeof res);
-    res.success = !false;   /* garbage: the callback must write it */
+    res.success = !false; /* garbage: the callback must write it */
     land_callback(&req, &res);
     return res;
 }
@@ -233,7 +233,7 @@ void test_params_merge_starts_again_after_applying(void) {
     my_msgs__msg__Params b = empty_params();
     b.kp_vel = 0.08f;
     param_callback(&b);
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, -1.0f, param_msg.kp_rate);  /* fresh message */
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, -1.0f, param_msg.kp_rate); /* fresh message */
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.08f, param_msg.kp_vel);
 }
 
@@ -307,8 +307,8 @@ void test_params_out_of_range_rejects_the_whole_message(void) {
     params_t before, after;
     get_all_params(&before);
     my_msgs__msg__Params m = empty_params();
-    m.k_drag = 1.0f;         /* valid */
-    m.kp_rate = 9999.0f;     /* out of range */
+    m.k_drag = 1.0f; /* valid */
+    m.kp_rate = 9999.0f; /* out of range */
     param_callback(&m);
     apply_pending_params();
     get_all_params(&after);
@@ -326,7 +326,7 @@ void test_params_nan_and_out_of_range_are_rejected(void) {
     get_gains(&k);
     TEST_ASSERT_FALSE(isnan(k.kp_h));
 
-    send_params(200.0f, 1.0f);  /* k_drag > 100 */
+    send_params(200.0f, 1.0f); /* k_drag > 100 */
     apply_pending_params();
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.5f, get_k_drag());
 }
@@ -367,7 +367,7 @@ static void send_cmd_vel(double vx, double vy, double vz, double wz) {
 }
 
 void test_cmdvel_nothing_received_is_not_fresh(void) {
-    mock_time_us = 10000000;   /* 10 s */
+    mock_time_us = 10000000; /* 10 s */
     geometry_msgs__msg__Twist t = { 0 };
     TEST_ASSERT_FALSE(get_cmd_vel(&t, MAX_AGE_MS));
 }
@@ -376,7 +376,7 @@ void test_cmdvel_nothing_received_is_not_fresh(void) {
  * t_last_vel != 0 (the value of clear_cmd_vel()): during the first
  * MAX_AGE_MS after boot it says that a (zero) cmd_vel has arrived. */
 void test_cmdvel_nothing_received_just_after_boot_is_not_fresh(void) {
-    mock_time_us = 100000;     /* 100 ms after boot */
+    mock_time_us = 100000; /* 100 ms after boot */
     geometry_msgs__msg__Twist t = { 0 };
     TEST_ASSERT_FALSE_MESSAGE(get_cmd_vel(&t, MAX_AGE_MS), "no cmd_vel has been received");
 }
@@ -412,7 +412,7 @@ void test_cmdvel_max_age_is_the_one_asked(void) {
     mock_time_us = 1000000;
     send_cmd_vel(0.3, 0, 0, 0);
     geometry_msgs__msg__Twist t = { 0 };
-    mock_time_us = 1200000;   /* 200 ms later */
+    mock_time_us = 1200000; /* 200 ms later */
     TEST_ASSERT_FALSE(get_cmd_vel(&t, 100));
     TEST_ASSERT_TRUE(get_cmd_vel(&t, 300));
 }
@@ -440,7 +440,7 @@ void test_cmdvel_new_message_replaces_the_old_one(void) {
     send_cmd_vel(0.3, 0, 0, 0);
     mock_time_us = 1400000;
     send_cmd_vel(-0.1, 0, 0, 0);
-    mock_time_us = 1800000;   /* 800 ms after the first, 400 ms after the second */
+    mock_time_us = 1800000; /* 800 ms after the first, 400 ms after the second */
     geometry_msgs__msg__Twist t = { 0 };
     TEST_ASSERT_TRUE(get_cmd_vel(&t, MAX_AGE_MS));
     TEST_ASSERT_EQUAL_DOUBLE(-0.1, t.linear.x);
@@ -452,7 +452,7 @@ void test_cmdvel_clear_forgets_the_command(void) {
     clear_cmd_vel();
     geometry_msgs__msg__Twist t = { 0 };
     TEST_ASSERT_FALSE(get_cmd_vel(&t, MAX_AGE_MS));
-    send_cmd_vel(0.2, 0, 0, 0);   /* a new one is fresh again */
+    send_cmd_vel(0.2, 0, 0, 0); /* a new one is fresh again */
     TEST_ASSERT_TRUE(get_cmd_vel(&t, MAX_AGE_MS));
     TEST_ASSERT_EQUAL_DOUBLE(0.2, t.linear.x);
 }
@@ -477,7 +477,7 @@ static bool getter_waits_for_the_mutex(void *(*fn)(void *)) {
     getter_done = 0;
     pthread_mutex_lock(&lock);
     pthread_create(&th, NULL, fn, NULL);
-    usleep(100000);   /* 100 ms */
+    usleep(100000); /* 100 ms */
     bool waited = !getter_done;
     pthread_mutex_unlock(&lock);
     pthread_join(th, NULL);
@@ -618,7 +618,7 @@ void test_set_altitude_ready_is_read_only_once(void) {
     my_msgs__srv__SetAltitude_Response r = call_set_altitude(1.0f);
     TEST_ASSERT_TRUE(get_take_off_ready());
     TEST_ASSERT_FALSE(get_take_off_ready());
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, get_target_altitude());   /* the altitude stays */
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, get_target_altitude()); /* the altitude stays */
     rosidl_runtime_c__String__fini(&r.reason);
 }
 
@@ -699,7 +699,7 @@ void test_land_getter_uses_the_mutex(void) {
 void test_state_msg_angular_velocity_in_rad_per_s(void) {
     my_msgs__msg__State m;
     memset(&m, 0, sizeof m);
-    set_vel_ang(90.0f, -45.0f, 180.0f);   /* deg/s */
+    set_vel_ang(90.0f, -45.0f, 180.0f); /* deg/s */
     fill_state_msg(&m);
     TEST_ASSERT_DOUBLE_WITHIN(1e-4, M_PI / 2, m.vel_ang.x);
     TEST_ASSERT_DOUBLE_WITHIN(1e-4, -M_PI / 4, m.vel_ang.y);
@@ -709,7 +709,7 @@ void test_state_msg_angular_velocity_in_rad_per_s(void) {
 void test_state_msg_linear_acceleration_in_m_per_s2(void) {
     my_msgs__msg__State m;
     memset(&m, 0, sizeof m);
-    set_acc_lin(0.0f, 0.5f, 1.0f);   /* g */
+    set_acc_lin(0.0f, 0.5f, 1.0f); /* g */
     fill_state_msg(&m);
     TEST_ASSERT_DOUBLE_WITHIN(1e-4, 0.0, m.acc_lin.x);
     TEST_ASSERT_DOUBLE_WITHIN(1e-4, 0.5 * GRAVITY, m.acc_lin.y);
@@ -722,7 +722,7 @@ void test_state_msg_linear_acceleration_in_m_per_s2(void) {
 void test_state_msg_stamp_from_microseconds(void) {
     my_msgs__msg__State m;
     memset(&m, 0, sizeof m);
-    mock_time_us = 2500000;   /* 2.5 s */
+    mock_time_us = 2500000; /* 2.5 s */
     fill_state_msg(&m);
     TEST_ASSERT_EQUAL_INT32(2, m.header.stamp.sec);
     TEST_ASSERT_EQUAL_UINT32(500000000u, m.header.stamp.nanosec);
@@ -744,10 +744,10 @@ void test_state_msg_stamp_is_the_agent_time_when_synced(void) {
 void test_state_msg_stamp_is_the_gazebo_time(void) {
     my_msgs__msg__State m;
     memset(&m, 0, sizeof m);
-    mock_time_us = 9000000;            /* not used */
-    mock_uros_synced = true;           /* not used */
+    mock_time_us = 9000000; /* not used */
+    mock_uros_synced = true; /* not used */
     mock_uros_epoch_ns = 1;
-    set_time_imu(2500000000LL);        /* 2.5 s of sim time */
+    set_time_imu(2500000000LL); /* 2.5 s of sim time */
     fill_state_msg(&m);
     TEST_ASSERT_EQUAL_INT32(2, m.header.stamp.sec);
     TEST_ASSERT_EQUAL_UINT32(500000000u, m.header.stamp.nanosec);
@@ -789,7 +789,7 @@ void test_state_msg_orientation(void) {
 void test_state_msg_initial_orientation_is_valid(void) {
     my_msgs__msg__State m;
     memset(&m, 0, sizeof m);
-    fill_state_msg(&m);   /* state_init(): q = (0, 0, 0, 1) */
+    fill_state_msg(&m); /* state_init(): q = (0, 0, 0, 1) */
     TEST_ASSERT_DOUBLE_WITHIN(1e-6, 1.0, m.q.w);
 }
 
@@ -980,7 +980,7 @@ void test_task_spins_the_executor(void) {
 
 void test_task_any_init_error_stops_the_task(void) {
     run_ros_task();
-    int n = mock_rcl_calls;   /* calls of a good init */
+    int n = mock_rcl_calls; /* calls of a good init */
     TEST_ASSERT_TRUE(n > 5);
     for (int k = 1; k <= n; k++) {
         setUp();
@@ -994,7 +994,7 @@ void test_task_any_init_error_stops_the_task(void) {
 }
 
 void test_task_no_agent_no_led(void) {
-    mock_rcl_fail_at = 3;   /* init options, udp address, support init */
+    mock_rcl_fail_at = 3; /* init options, udp address, support init */
     run_ros_task();
     TEST_ASSERT_EQUAL_INT(0, led_on_calls[LED_ESP]);
     TEST_ASSERT_EQUAL_INT(0, mock_ros_count(MOCK_ROS_NODE));
@@ -1009,14 +1009,14 @@ void test_task_syncs_the_time_with_the_agent(void) {
 }
 
 void test_task_without_agent_does_not_sync_the_time(void) {
-    mock_rcl_fail_at = 3;   /* support init fails */
+    mock_rcl_fail_at = 3; /* support init fails */
     run_ros_task();
     TEST_ASSERT_EQUAL_INT(0, mock_uros_sync_calls);
 }
 
 /* If the sync fails the task goes on (stamps with the time since boot). */
 void test_task_time_sync_error_does_not_stop_the_task(void) {
-    mock_uros_sync_ret = 1;   /* RMW_RET_ERROR */
+    mock_uros_sync_ret = 1; /* RMW_RET_ERROR */
     run_ros_task();
     TEST_ASSERT_EQUAL_INT(1, mock_uros_sync_calls);
     TEST_ASSERT_EQUAL_INT(0, mock_task_delete_calls);
@@ -1026,14 +1026,14 @@ void test_task_time_sync_error_does_not_stop_the_task(void) {
 
 void test_task_resyncs_the_time_every_60_s(void) {
     TEST_ASSERT_EQUAL_INT64(60000000LL, TIME_SYNC_PERIOD_US);
-    mock_time_step_us = 30000000;   /* every esp_timer_get_time() is 30 s later */
-    mock_spin_max = 5;              /* 4 loops: t = 60, 90, 120, 150 s */
+    mock_time_step_us = 30000000; /* every esp_timer_get_time() is 30 s later */
+    mock_spin_max = 5; /* 4 loops: t = 60, 90, 120, 150 s */
     mock_run_task(micro_ros_task, NULL, 1000);
-    TEST_ASSERT_EQUAL_INT(3, mock_uros_sync_calls);   /* start, 60 s, 120 s */
+    TEST_ASSERT_EQUAL_INT(3, mock_uros_sync_calls); /* start, 60 s, 120 s */
 }
 
 void test_task_does_not_resync_before_60_s(void) {
-    mock_time_step_us = 1000000;    /* 1 s */
+    mock_time_step_us = 1000000; /* 1 s */
     mock_spin_max = 30;
     mock_run_task(micro_ros_task, NULL, 1000);
     TEST_ASSERT_EQUAL_INT(1, mock_uros_sync_calls);
@@ -1055,6 +1055,16 @@ void test_init_test_is_false_before_init(void) {
     TEST_ASSERT_FALSE(ros_test());
 }
 
+/* The mock does not run uros_task: this hook answers the ping of ros_test()
+ * while it waits, as the task does when the agent answers. */
+static void uros_task_answers_the_ping(TickType_t ticks) {
+    (void)ticks;
+    if (ping_requested) {
+        ping_result = 1;
+        ping_requested = false;
+    }
+}
+
 void test_init_creates_the_task_with_the_menuconfig_values(void) {
     ros_init();
     const mock_task_t *t = mock_find_task("uros_task");
@@ -1062,7 +1072,19 @@ void test_init_creates_the_task_with_the_menuconfig_values(void) {
     TEST_ASSERT_EQUAL_PTR((void *)micro_ros_task, (void *)t->fn);
     TEST_ASSERT_EQUAL_UINT32(CONFIG_MICRO_ROS_STACK, t->stack);
     TEST_ASSERT_EQUAL_UINT(CONFIG_MICRO_ROS_TASK_PRIO, t->prio);
+}
+
+void test_init_test_is_true_when_the_task_answers_the_ping(void) {
+    ros_init();
+    mock_delay_hook = uros_task_answers_the_ping;
     TEST_ASSERT_TRUE(ros_test());
+}
+
+/* uros_task dead or stuck: nobody answers, ros_test() gives up after ~1 s */
+void test_init_test_is_false_when_the_task_does_not_answer(void) {
+    ros_init();
+    TEST_ASSERT_FALSE(ros_test());
+    TEST_ASSERT_FALSE(ping_requested);
 }
 
 void test_init_starts_the_network_and_disables_wifi_power_save(void) {
@@ -1209,7 +1231,7 @@ void test_sim_imu_callback_time_in_nanoseconds(void) {
 /* [BUG] Consequence of the bug above: the time must always grow. */
 void test_sim_imu_callback_time_always_grows(void) {
     int64_t prev = -1;
-    for (int i = 0; i < 300; i++) {   /* 3 s at 100 Hz */
+    for (int i = 0; i < 300; i++) { /* 3 s at 100 Hz */
         int64_t ns = (int64_t)i * 10000000LL;
         sensor_msgs__msg__Imu m = gz_imu(0, 0, 0, 0, 0, GRAVITY, (int32_t)(ns / 1000000000LL), (uint32_t)(ns % 1000000000LL));
         imu_callback(&m);
@@ -1223,7 +1245,7 @@ void test_sim_imu_callback_time_always_grows(void) {
 void test_sim_height_callback_saves_the_altitude(void) {
     sensor_msgs__msg__FluidPressure m;
     memset(&m, 0, sizeof m);
-    m.fluid_pressure = 100000.0;   /* Pa -> 110.9 m */
+    m.fluid_pressure = 100000.0; /* Pa -> 110.9 m */
     height_callback(&m);
     vec3_t p;
     get_position(&p);
@@ -1245,7 +1267,7 @@ void test_sim_height_callback_sea_level_is_zero(void) {
 void test_sim_height_callback_keeps_the_decimals_of_the_pressure(void) {
     sensor_msgs__msg__FluidPressure m;
     memset(&m, 0, sizeof m);
-    m.fluid_pressure = 101324.5;   /* half a pascal: ~4 cm */
+    m.fluid_pressure = 101324.5; /* half a pascal: ~4 cm */
     height_callback(&m);
     vec3_t p;
     get_position(&p);
@@ -1291,8 +1313,8 @@ void test_sim_motors_timer_publishes_the_last_command(void) {
     double p1[NUM_MOTORS] = { 1, 2, 3, 4 };
     double p2[NUM_MOTORS] = { 10, 20, 30, 40 };
     pub_motor_speed(p1);
-    pub_motor_speed(p2);   /* overwrites the first one */
-    set_time_imu(7250000000LL);   /* Gazebo time: 7.25 s */
+    pub_motor_speed(p2); /* overwrites the first one */
+    set_time_imu(7250000000LL); /* Gazebo time: 7.25 s */
     motors_timer_callback(&t, 0);
     TEST_ASSERT_EQUAL_INT(1, mock_rcl_publish_calls);
     TEST_ASSERT_EQUAL_PTR(&motors_pub, mock_rcl_last_pub);
@@ -1325,10 +1347,10 @@ void test_sim_motors_timer_waits_for_the_publisher(void) {
     motors_msg_init();
     double p[NUM_MOTORS] = { 1, 1, 1, 1 };
     pub_motor_speed(p);
-    motors_timer_callback(&t, 0);   /* publisher not ready */
+    motors_timer_callback(&t, 0); /* publisher not ready */
     TEST_ASSERT_EQUAL_INT(0, mock_rcl_publish_calls);
     motors_pub_ready = true;
-    motors_timer_callback(&t, 0);   /* the command is still there */
+    motors_timer_callback(&t, 0); /* the command is still there */
     TEST_ASSERT_EQUAL_INT(1, mock_rcl_publish_calls);
 }
 #endif
@@ -1507,6 +1529,8 @@ int main(void) {
 
     RUN_TEST(test_init_test_is_false_before_init);
     RUN_TEST(test_init_creates_the_task_with_the_menuconfig_values);
+    RUN_TEST(test_init_test_is_true_when_the_task_answers_the_ping);
+    RUN_TEST(test_init_test_is_false_when_the_task_does_not_answer);
     RUN_TEST(test_init_starts_the_network_and_disables_wifi_power_save);
     RUN_TEST(test_init_twice_is_done_once);
     RUN_TEST(test_init_network_error_is_checked);

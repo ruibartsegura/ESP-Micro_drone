@@ -9,19 +9,19 @@ typedef void (*rclc_service_callback_t)(const void *, void *);
 typedef struct { size_t max_handles; size_t used; int initialised; } rclc_executor_t;
 
 typedef struct {
-    mock_ros_kind_t kind;          /* MOCK_ROS_SUB, MOCK_ROS_SRV or MOCK_ROS_TIMER */
+    mock_ros_kind_t kind; /* MOCK_ROS_SUB, MOCK_ROS_SRV or MOCK_ROS_TIMER */
     const void     *entity;
-    void           *msg;           /* subscription msg / service request          */
-    void           *res;           /* service response                            */
+    void           *msg; /* subscription msg / service request          */
+    void           *res; /* service response                            */
     void           *callback;
     rclc_executor_handle_invocation_t invocation;
 } mock_exec_handle_t;
 
 extern mock_exec_handle_t mock_exec_handles[MOCK_ROS_MAX];
 extern int                mock_exec_handle_count;
-extern size_t             mock_exec_max_handles;   /* value given to rclc_executor_init */
+extern size_t             mock_exec_max_handles; /* value given to rclc_executor_init */
 extern int                mock_spin_calls;
-extern int                mock_spin_max;           /* stop the task after N spins (0 = 1) */
+extern int                mock_spin_max; /* stop the task after N spins (0 = 1) */
 extern rcl_ret_t          mock_spin_ret;
 
 rcl_ret_t rclc_executor_init(rclc_executor_t *exec, rcl_context_t *ctx, size_t handles, const rcl_allocator_t *alloc);

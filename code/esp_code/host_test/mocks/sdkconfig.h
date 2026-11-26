@@ -31,10 +31,10 @@
 #define CONFIG_MOTOR04_PIN 4
 
 /* ---- Flight parameters ---- */
-#define CONFIG_VEL_MAX      50   /* cm/s */
+#define CONFIG_VEL_MAX      50 /* cm/s */
 #define CONFIG_LAND_ON_SITE 1
-#define CONFIG_FLIGHT_H_MIN 50   /* cm */
-#define CONFIG_FLIGHT_H_MAX 300  /* cm */
+#define CONFIG_FLIGHT_H_MIN 50 /* cm */
+#define CONFIG_FLIGHT_H_MAX 300 /* cm */
 
 #define CONFIG_IMU_TIMEOUT  300
 #define CONFIG_BARO_TIMEOUT 500

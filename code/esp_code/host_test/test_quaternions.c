@@ -135,7 +135,7 @@ void test_euler_angles_are_in_degrees(void) {
 
 void test_euler_pitch_90_does_not_give_nan(void) {
     quat_t q = quat_from_euler(0.0f, 90.0f, 0.0f);
-    q.y *= 1.0001f;   /* rounding error: sinp a bit over 1 */
+    q.y *= 1.0001f; /* rounding error: sinp a bit over 1 */
     float p = quaternion_get_pitch(&q);
     TEST_ASSERT_FALSE(isnan(p));
     TEST_ASSERT_FLOAT_WITHIN(0.5f, 90.0f, p);
@@ -281,7 +281,7 @@ void test_accel_removes_the_gyro_drift(void) {
      * the error grows forever, with it the error stays small. */
     quat_t q;
     quaternion_init(&q);
-    run_filter(&q, 6000, RAD(0.5f), 0, 0, 0, 0, 1.0f, 0.01f);   /* 60 s */
+    run_filter(&q, 6000, RAD(0.5f), 0, 0, 0, 0, 1.0f, 0.01f); /* 60 s */
     TEST_ASSERT_TRUE_MESSAGE(fabsf(quaternion_get_roll(&q)) < 5.0f,
                              "with the accelerometer the drift must stay bounded");
 }
@@ -289,7 +289,7 @@ void test_accel_removes_the_gyro_drift(void) {
 void test_accel_tiny_reading_is_ignored(void) {
     quat_t q;
     quaternion_init(&q);
-    run_filter(&q, 100, 0, 0, 0, 1e-5f, 0, 0, 0.01f);   /* |a|^2 < 1e-6 */
+    run_filter(&q, 100, 0, 0, 0, 1e-5f, 0, 0, 0.01f); /* |a|^2 < 1e-6 */
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, q.w);
 }
 

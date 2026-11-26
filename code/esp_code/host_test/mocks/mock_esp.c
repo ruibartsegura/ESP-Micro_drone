@@ -96,8 +96,8 @@ int         mock_task_delete_calls;
 void      (*mock_delay_hook)(TickType_t ticks);
 
 static jmp_buf task_jmp;
-static int     task_running;     /* inside mock_run_task() */
-static int     task_delays;      /* delays inside the running task */
+static int     task_running; /* inside mock_run_task() */
+static int     task_delays; /* delays inside the running task */
 static int     task_max_delays;
 
 BaseType_t xTaskCreate(TaskFunction_t fn, const char *name, uint32_t stack,
@@ -132,7 +132,7 @@ BaseType_t xTaskDelayUntil(TickType_t *prev, TickType_t inc) {
     TickType_t now = xTaskGetTickCount();
     *prev = wake;
     if ((int32_t)(wake - now) <= 0) {
-        return pdFALSE;   /* late: no wait */
+        return pdFALSE; /* late: no wait */
     }
     vTaskDelay(wake - now);
     return pdTRUE;
@@ -159,7 +159,7 @@ int mock_run_task(TaskFunction_t fn, void *arg, int max_delays) {
     task_max_delays = max_delays > 0 ? max_delays : 1;
     task_running = 1;
     if (setjmp(task_jmp) == 0) {
-        fn(arg);   /* the task returned by itself (it should never do it) */
+        fn(arg); /* the task returned by itself (it should never do it) */
     }
     task_running = 0;
     return task_delays;

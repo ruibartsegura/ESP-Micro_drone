@@ -88,7 +88,7 @@ typedef enum {
     SENSORS_OK   = 0,
     IMU_FAILURE  = 1,
     BARO_FAILURE = 2,
-    LINK_FAILURE = 3  // Link with the micro-ROS agent lost (real drone)
+    LINK_FAILURE = 3 // Link with the micro-ROS agent lost (real drone)
 } failure_type_t;
 
 
@@ -170,7 +170,7 @@ void system_init(void) {
     // Initialize the odometry estimator
     init_odom_estimator();
     vTaskDelay(pdMS_TO_TICKS(500));
-    
+
     // If gains tunning on initialize it.
     #ifdef CONFIG_GAINS_TUNE_ON
         init_tuning(); // change the gains from the serial console

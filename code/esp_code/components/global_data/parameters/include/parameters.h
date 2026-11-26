@@ -43,21 +43,21 @@ typedef struct {
 
 // Controller (attitude_controller.c)
 typedef struct gains {
-    float kp_h;            // m error -> motor speed (rad/s)
-    float kd_h;            // m/s vertical velocity -> motor speed (rad/s)
-    float kp_vel;          // m/s error -> target roll / pitch (rad)
-    float kp_angle;        // deg error -> deg/s target
-    float kp_rate;         // deg/s error -> motor speed (roll / pitch)
-    float ki_rate;         // integral of the deg/s error (deg) -> motor speed
-    float kp_yaw_rate;     // deg/s error -> motor speed (yaw)
-    float max_rate;        // Max target roll/pitch rate (deg/s)
-    float max_pow_rp;      // Max speed correction of each roll / pitch term (rad/s)
-    float base;            // Hover motor speed (rad/s)
-    float alpha;           // Complementary filter of roll / pitch (0-1)
-    float max_angle;       // Max target tilt (rad)
-    float max_pow_yaw;     // Max speed correction of the yaw term (rad/s)
+    float kp_h; // m error -> motor speed (rad/s)
+    float kd_h; // m/s vertical velocity -> motor speed (rad/s)
+    float kp_vel; // m/s error -> target roll / pitch (rad)
+    float kp_angle; // deg error -> deg/s target
+    float kp_rate; // deg/s error -> motor speed (roll / pitch)
+    float ki_rate; // integral of the deg/s error (deg) -> motor speed
+    float kp_yaw_rate; // deg/s error -> motor speed (yaw)
+    float max_rate; // Max target roll/pitch rate (deg/s)
+    float max_pow_rp; // Max speed correction of each roll / pitch term (rad/s)
+    float base; // Hover motor speed (rad/s)
+    float alpha; // Complementary filter of roll / pitch (0-1)
+    float max_angle; // Max target tilt (rad)
+    float max_pow_yaw; // Max speed correction of the yaw term (rad/s)
     float pitch_deviation; // Start value of the pitch integral (rad/s)
-    float roll_deviation;  // Start value of the roll integral (rad/s)
+    float roll_deviation; // Start value of the roll integral (rad/s)
 } GAINS;
 
 // Odometry (odometry_estimator.c)

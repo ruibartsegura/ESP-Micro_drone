@@ -54,14 +54,14 @@ STATE = "/drone/state"
 GT = "/ground_truth"
 CMD = "/drone/cmd_vel"
 
-THROTTLE_BASE = 2387.0   # attitude_controller.c
-MAX_POWER = 3000.0       # motors.c (simulation)
+THROTTLE_BASE = 2387.0 # attitude_controller.c
+MAX_POWER = 3000.0 # motors.c (simulation)
 P0 = 101325.0
 G = 9.81
-CMD_EXPIRE = 0.5         # CMD_VEL_EXPIRE_TIME in system.c (s)
+CMD_EXPIRE = 0.5 # CMD_VEL_EXPIRE_TIME in system.c (s)
 
 SM_STATES = ["INIT", "CHECKING", "ARMING", "TAKING_OFF", "HOVERING",
-             "EXTERNAL_CONTROL", "LANDING", "DISARMING", "EMERGENCY_LANDING", "ERROR"]   # state.h
+             "EXTERNAL_CONTROL", "LANDING", "DISARMING", "EMERGENCY_LANDING", "ERROR"] # state.h
 
 
 def read_bag(uri):
@@ -449,7 +449,7 @@ def grid_figure(plt, title, est, real, rows, t_real_key, segs, t0, path):
 
 def plot_figures(state, ref, imu, source, out, segs=(), t0=0.0):
     import matplotlib
-    matplotlib.use("Agg")  # no window, only the png
+    matplotlib.use("Agg") # no window, only the png
     import matplotlib.pyplot as plt
 
     est = est_series(state, t0)
@@ -484,7 +484,7 @@ def plot_figures(state, ref, imu, source, out, segs=(), t0=0.0):
     a.plot(est["y"], est["x"], ".-", ms=3, lw=1, color="tab:blue", label="medido (/drone/state)")
     a.plot(real["y"][0], real["x"][0], "ko", label="inicio")
     a.plot(real["y"][-1], real["x"][-1], "kx", ms=9, label="fin (real)")
-    a.invert_xaxis()  # +y to the left: same view as from behind the drone
+    a.invert_xaxis() # +y to the left: same view as from behind the drone
     a.set_xlabel("y (m)  ← izquierda")
     a.set_ylabel("x (m)  ↑ adelante")
     a.set_title(f"Recorrido visto desde arriba — {source}", fontsize=10)

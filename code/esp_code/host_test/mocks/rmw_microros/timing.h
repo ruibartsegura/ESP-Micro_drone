@@ -6,7 +6,7 @@
 typedef int rmw_ret_t;
 typedef struct { const rcl_publisher_t *pub; } rmw_publisher_t;
 
-extern int                    mock_uros_pub_timeout_ms;      /* -1 = never called */
+extern int                    mock_uros_pub_timeout_ms; /* -1 = never called */
 extern const rcl_publisher_t *mock_uros_pub_timeout_pub;
 
 rmw_publisher_t *rcl_publisher_get_rmw_handle(const rcl_publisher_t *pub);

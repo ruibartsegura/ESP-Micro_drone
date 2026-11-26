@@ -11,7 +11,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include "esp_err.h"
-#include "freertos/FreeRTOS.h"   /* the real driver also includes FreeRTOS */
+#include "freertos/FreeRTOS.h" /* the real driver also includes FreeRTOS */
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "driver/gpio.h"
@@ -49,10 +49,10 @@ extern esp_err_t    mock_i2c_param_config_ret;
 extern esp_err_t    mock_i2c_driver_install_ret;
 
 /* ---- Fake devices ---- */
-extern uint8_t mock_i2c_regs[128][256];      /* [7-bit address][register] */
-extern int     mock_i2c_transactions;        /* write + write_read calls  */
-extern int     mock_i2c_fail_at;             /* fail transaction number N (1..), 0 = never */
-extern int     mock_i2c_fail_from;           /* fail every transaction >= N, 0 = never     */
+extern uint8_t mock_i2c_regs[128][256]; /* [7-bit address][register] */
+extern int     mock_i2c_transactions; /* write + write_read calls  */
+extern int     mock_i2c_fail_at; /* fail transaction number N (1..), 0 = never */
+extern int     mock_i2c_fail_from; /* fail every transaction >= N, 0 = never     */
 extern esp_err_t mock_i2c_fail_err;
 
 /* Last write per device (reg + data), useful to check commands. */
@@ -80,4 +80,4 @@ esp_err_t i2c_master_write_read_device(i2c_port_t port, uint8_t addr,
 /* Helpers for the tests. */
 void mock_i2c_set_be16(uint8_t addr, uint8_t reg, int16_t value);
 int  mock_i2c_count_writes(uint8_t addr, uint8_t reg);
-int  mock_i2c_last_write(uint8_t addr, uint8_t reg);   /* -1 if never written */
+int  mock_i2c_last_write(uint8_t addr, uint8_t reg); /* -1 if never written */

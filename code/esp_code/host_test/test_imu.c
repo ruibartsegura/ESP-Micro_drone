@@ -57,8 +57,8 @@ typedef struct {
 
 #define MAX_SAMPLES 64
 static IMU fake_samples[MAX_SAMPLES];
-static int fake_n;          /* samples available (the last one repeats) */
-static int fake_k;          /* current sample */
+static int fake_n; /* samples available (the last one repeats) */
+static int fake_k; /* current sample */
 
 /* The current sample is also the global state: like the real IMU task. */
 static void fake_load(void) {
@@ -127,7 +127,7 @@ void setUp(void) {
     fake_all(sample(0, 0, 1.0f, 0, 0, 0));
     fake_k = 0;
 #ifndef CONFIG_SIMULATION_ON
-    fake_mpu_set_sample(0, 0, 16384, 0, 0, 0);   /* level and still */
+    fake_mpu_set_sample(0, 0, 16384, 0, 0, 0); /* level and still */
 #endif
 }
 
@@ -204,7 +204,7 @@ void test_init_wakes_up_the_mpu6050(void) {
 }
 
 void test_init_calibrates_the_sensor(void) {
-    fake_mpu_set_sample(164, 0, 16384, 262, 0, 0);   /* 0.01 g and 2 deg/s of offset */
+    fake_mpu_set_sample(164, 0, 16384, 262, 0, 0); /* 0.01 g and 2 deg/s of offset */
     init_guarded();
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.01f, accel_bias[0]);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 2.0f, gyro_bias[0]);
@@ -225,14 +225,14 @@ void test_init_driver_install_error_stops_the_init(void) {
 }
 
 void test_init_sensor_error_stops_the_init(void) {
-    mock_i2c_fail_from = 1;   /* the MPU-6050 does not answer */
+    mock_i2c_fail_from = 1; /* the MPU-6050 does not answer */
     imu_init();
     TEST_ASSERT_FALSE(imu_test());
     TEST_ASSERT_EQUAL_INT(0, mock_task_count);
 }
 
 void test_init_calibration_error_stops_the_init(void) {
-    mock_i2c_fail_at = 5 + 50;   /* the init uses 5 writes, then fails in the calibration */
+    mock_i2c_fail_at = 5 + 50; /* the init uses 5 writes, then fails in the calibration */
     TEST_ASSERT_NO_CRASH(imu_init(), "[BUG] imu_init() crashes in the calibration (NULL timestamp in mpu6050.c)");
     TEST_ASSERT_FALSE(imu_test());
     TEST_ASSERT_EQUAL_INT(0, mock_task_count);
@@ -329,7 +329,7 @@ void test_task_simulation_does_not_touch_the_state(void) {
     mock_run_task(imu_task, NULL, 10);
     vec3_t a;
     get_acc_lin(&a);
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 9.8f, a.z);   /* in simulation ROS writes it */
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 9.8f, a.z); /* in simulation ROS writes it */
     TEST_ASSERT_EQUAL_INT(0, mock_i2c_transactions);
 }
 #else
@@ -366,7 +366,7 @@ void test_arm_checks_20_samples_10_ms_apart(void) {
     imu_arm_state_t st;
     arm_check_setup();
     imu_check_stable_for_arming(&st);
-    TEST_ASSERT_EQUAL_INT(IMU_ARM_CHECK_SAMPLES, mock_delay_calls);   /* one wait per sample */
+    TEST_ASSERT_EQUAL_INT(IMU_ARM_CHECK_SAMPLES, mock_delay_calls); /* one wait per sample */
     TEST_ASSERT_EQUAL_UINT64(IMU_ARM_CHECK_SAMPLES * IMU_ARM_CHECK_PERIOD_MS, mock_delay_total_ms);
 }
 
@@ -407,7 +407,7 @@ void test_arm_one_bad_sample_is_enough_and_stops_early(void) {
 
 void test_arm_low_acceleration_is_abnormal(void) {
     imu_arm_state_t st;
-    fake_all(sample(0, 0, 0.5f, 0, 0, 0));   /* falling */
+    fake_all(sample(0, 0, 0.5f, 0, 0, 0)); /* falling */
     arm_check_setup();
     imu_check_stable_for_arming(&st);
     TEST_ASSERT_EQUAL_INT(IMU_ARM_STATE_ACCEL_ABNORMAL, st);
@@ -415,7 +415,7 @@ void test_arm_low_acceleration_is_abnormal(void) {
 
 void test_arm_high_acceleration_is_abnormal(void) {
     imu_arm_state_t st;
-    fake_all(sample(0, 0, 1.3f, 0, 0, 0));   /* hand shaking the drone */
+    fake_all(sample(0, 0, 1.3f, 0, 0, 0)); /* hand shaking the drone */
     arm_check_setup();
     imu_check_stable_for_arming(&st);
     TEST_ASSERT_EQUAL_INT(IMU_ARM_STATE_ACCEL_ABNORMAL, st);
@@ -438,7 +438,7 @@ void test_arm_acceleration_limits_are_inclusive(void) {
  * of 30 deg is "stable" and can be armed. */
 void test_arm_tilted_drone_is_tilted(void) {
     imu_arm_state_t st;
-    fake_all(sample(0, sinf(RAD(30.0f)), cosf(RAD(30.0f)), 0, 0, 0));   /* |a| = 1 g, roll 30 deg */
+    fake_all(sample(0, sinf(RAD(30.0f)), cosf(RAD(30.0f)), 0, 0, 0)); /* |a| = 1 g, roll 30 deg */
     arm_check_setup();
     imu_check_stable_for_arming(&st);
     TEST_ASSERT_EQUAL_INT(IMU_ARM_STATE_TILTED, st);
